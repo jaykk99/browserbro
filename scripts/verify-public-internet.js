@@ -97,6 +97,23 @@ async function run() {
     const bytes = Buffer.from(await screenshot.arrayBuffer());
     assertResult(screenshot.ok && bytes.subarray(0,8).toString('hex') === '89504e470d0a1a0a' && bytes.length > 1000, 'real screenshot ' + target.host, String(bytes.length) + ' bytes');
   }
+  console.log('\n--- Dashboard Go-button API: real navigation to example.org ---');
+  const dashboardNavigation = await request('/api/sessions/' + session + '/navigate', {
+    method: 'POST', body: JSON.stringify({ url: 'https://example.org' }),
+  });
+  assertResult(dashboardNavigation.status === 200
+    && dashboardNavigation.body.ok === true
+    && new URL(dashboardNavigation.body.url).hostname === 'example.org'
+    && /Example Domain/i.test(dashboardNavigation.body.title || ''),
+    'dashboard navigate API loads example.org', JSON.stringify(dashboardNavigation.body).slice(0, 420));
+  const dashboardText = await request('/api/sessions/' + session + '/text');
+  assertResult(dashboardText.status === 200 && /Example Domain/i.test(dashboardText.body.text || ''),
+    'dashboard navigation renders real content', String((dashboardText.body.text || '').length) + ' characters');
+  const negativeNavigation = await request('/api/sessions/' + session + '/navigate', {
+    method: 'POST', body: JSON.stringify({ url: 'https://does-not-exist.browserbro.invalid' }),
+  });
+  assertResult(negativeNavigation.status === 502 && negativeNavigation.body.ok === false,
+    'unreachable domain reports real navigation failure', JSON.stringify(negativeNavigation.body).slice(0, 230));
 }
 (async function main() {
   try { await run(); } catch (e) { failures++; console.error('Verification crashed:', e.stack || e); }
