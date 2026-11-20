@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { chromium } = require('playwright');
+const { installTerminal } = require('./agent-terminal');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Optional: point at a system Chrome/Chromium instead of the Playwright download.
@@ -39,6 +40,7 @@ const upload = multer({ dest: UPLOADS_DIR });
 
 // ---- session store -------------------------------------------------------
 const sessions = new Map(); // id -> {id,name,persistent,profile,context,page,createdAt,recording,recordTimer,framesDir,frameCount,replayPath}
+installTerminal(app, sessions); // Per-session agent terminal: real browser commands, no host shell
 let counter = 0;
 function newId() {
   counter += 1;
