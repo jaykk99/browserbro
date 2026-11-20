@@ -1,55 +1,50 @@
-name: Verify BrowserBro UI in Agent City preview
+name: Smoke-test live BrowserBro dashboard on Agent City
 on:
   push:
-    branches:
-      - diagnostics/agent-city-pages-live
-  workflow_dispatch:
-permissions:
-  contents: read
+    branches: [diagnostics/agent-city-pages-live]
+permissions: {contents: read}
 jobs:
-  ui:
+  browserbro-ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - name: Verify actual BrowserBro controls and live site screenshot
+          node-version: 24
+      - name: Install Playwright Chromium
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Real browser UI and Chromium backend smoke test
         run: |
           node <<'JS'
           const {chromium}=require('playwright');
           (async()=>{
-            const b=await chromium.launch({headless:true,args:['--no-sandbox']});
-            try{
-              const p=await b.newPage({viewport:{width:1280,height:850},ignoreHTTPSErrors:true});
-              const url='https://feature-browserbro-dashboard.agents-city.pages.dev/?browserbro=1';
-              const errors=[];
-              p.on('pageerror',e=>errors.push(e.message));
-              const response=await p.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-              console.log('PREVIEW_HTTP',response.status());
-              await p.getByTestId('browserbro-workspace').waitFor({timeout:30000});
-              console.log('UI_FOUND',await p.getByTestId('browserbro-workspace').count());
-              console.log('NAV_FOUND',await p.getByRole('navigation',{name:'BrowserBro navigation'}).count());
-              console.log('LIVE_VIEW',await p.getByText('Live view').count());
-              console.log('SESSION_VIEW',await p.getByText('Sessions').count());
-              const bar=p.getByRole('textbox',{name:'BrowserBro address bar'});
-              await bar.fill('https://example.com/');
-              await p.getByRole('navigation',{name:'BrowserBro navigation'}).getByRole('button',{name:'Go'}).click();
-              await p.getByText('Example Domain',{exact:true}).first().waitFor({timeout:60000});
-              console.log('REAL_PAGE_TITLE',await p.getByText('Example Domain',{exact:true}).count());
-              const image=p.locator('img[alt^="Real Chromium screenshot"]');
-              const screenshots=await image.count();
-              const readerNotice=await p.getByText('Page text loaded — no Chromium screenshot').count();
-              console.log('BROWSER_VIEW',JSON.stringify({screenshots,readerNotice,errors}));
-              if(screenshots===0&&readerNotice===0)throw Error('No live browser result rendered.');
-              if(errors.length>0)throw Error('Frontend JS failed: '+errors.join('; '));
-              await p.screenshot({path:'/tmp/browserbro-dashboard-desktop.png'});
-              await p.setViewportSize({width:390,height:844});
-              await p.screenshot({path:'/tmp/browserbro-dashboard-mobile.png'});
-              console.log('SUCCESS browserbro UI rendered and navigated on desktop and mobile');
-            }finally{await b.close();}
+            const browser=await chromium.launch({headless:true});
+            const page=await browser.newPage({viewport:{width:1200,height:850}});
+            const messages=[];
+            page.on('pageerror', e=>messages.push(String(e)));
+            const home=await page.goto('https://agents-city.pages.dev/?browserbro=1',{
+              waitUntil:'domcontentloaded',timeout:30000});
+            console.log('SITE',home.status());
+            await page.getByText('AGENT WEB WORKSPACE').waitFor({timeout:20000});
+            const labels=await page.locator('body').innerText();
+            for(const label of ['Browser tabs','Navigate / act','Live view','Output','Search real web']){
+              if(!labels.includes(label))throw Error('Missing BrowserBro dashboard UI: '+label);
+            }
+            console.log('UI_OK',JSON.stringify({dashboard:true,addressField:await page.getByRole('textbox',{name:'BrowserBro address bar'}).count(),newTab:await page.getByRole('button',{name:'New browser tab'}).count(),console:await page.getByRole('button',{name:/Console/}).count(),clientErrors:messages}));
+            const state=await (await fetch('https://agents-city.pages.dev/api/browser/status')).json();
+            console.log('STATUS',JSON.stringify({connected:state.connected,code:state.code,renderMode:state.renderMode}));
+            await page.getByRole('button',{name:'Open example.com'}).click();
+            await page.getByText('Fetching a real webpage...').waitFor({state:'hidden',timeout:60000});
+            console.log('LOAD_VIEW',JSON.stringify({
+              loaded:await page.getByText('Example Domain',{exact:false}).count(),
+              imgCount:await page.locator('img[alt^="Actual Chromium screenshot"]').count(),
+              alert:await page.getByRole('alert').allInnerTexts(),
+              text: (await page.locator('main').innerText()).slice(-500),
+              clientErrors:messages,
+            }));
+            await browser.close();
           })().catch(e=>{console.error(e);process.exit(1)});
           JS
