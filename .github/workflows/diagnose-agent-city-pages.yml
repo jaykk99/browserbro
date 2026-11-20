@@ -1,28 +1,37 @@
-name: Check live BrowserBro Worker and computer API
+name: BrowserBro Cloudflare live snapshot validation
 on:
   push:
-    branches: [diagnostics/agent-city-pages-live]
-permissions: {contents: read}
+    branches:
+      - diagnostics/agent-city-pages-live
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  public-api:
+  site:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: BrowserBro connected status and rendered page
-        shell: bash
+      - name: Verify Cloudflare binding and screenshot
         run: |
           node <<'JS'
           const base='https://agents-city.pages.dev';
-          const statusR=await fetch(base+'/api/browser/status',{signal:AbortSignal.timeout(15000),headers:{'cache-control':'no-cache'}});
-          const status=await statusR.json();
-          console.log('STATUS',JSON.stringify(status));
-          const navR=await fetch(base+'/api/browser/load',{
-            method:'POST',headers:{'content-type':'application/json'},
-            body:JSON.stringify({url:'https://example.com/',screenshot:true}),
-            signal:AbortSignal.timeout(50000)});
-          const nav=await navR.json();
-          console.log('NAV',JSON.stringify({status:navR.status,ok:nav.ok,source:nav.source,
-            renderMode:nav.renderMode,title:nav.title,hasScreenshot:!!nav.screenshot,
-            screenshotSize:nav.screenshot?.length,textLength:nav.text?.length,links:nav.links?.length,error:nav.error,
-            warning:nav.warning}));
+          try {
+            const stR=await fetch(base+'/api/browser/status?verify='+Date.now(),{headers:{'cache-control':'no-cache'},signal:AbortSignal.timeout(15000)});
+            const st=await stR.json();
+            console.log('STATUS',JSON.stringify({
+              http:stR.status,connected:st.connected,code:st.code,source:st.source,mode:st.renderMode,reader:st.readerAvailable,message:st.message,
+            }));
+            const r=await fetch(base+'/api/browser/load',{
+              method:'POST',headers:{'content-type':'application/json','cache-control':'no-cache'},
+              body:JSON.stringify({url:'https://example.com/',screenshot:true}),
+              signal:AbortSignal.timeout(45000),
+            });
+            const page=await r.json();
+            const report={http:r.status,ok:page.ok,source:page.source,renderMode:page.renderMode,
+              title:page.title,textLength:page.text?.length,links:page.links?.length,
+              screenshot:typeof page.screenshot==='string' && page.screenshot.startsWith('data:image/png;base64,'),
+              screenshotBytes:page.screenshot?.length || 0,code:page.code,error:page.error,warning:page.warning};
+            console.log('PAGE',JSON.stringify(report));
+            if(!r.ok)process.exitCode=1;
+          }catch(e){console.log('CHECK_ERROR',String(e));process.exitCode=1;}
           JS
