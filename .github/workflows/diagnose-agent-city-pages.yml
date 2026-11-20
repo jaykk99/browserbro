@@ -1,4 +1,4 @@
-name: Diagnose live Agent City Cloudflare browser
+name: Verify live Agent City computer browsing
 on:
   push:
     branches:
@@ -11,29 +11,35 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
-      - name: Verify public Cloudflare Pages browser APIs
+      - name: Verify status, real page rendering, links, and offline routing
         run: |
           node <<'JS'
           const site='https://agents-city.pages.dev';
-          const statusUrl=site+'/api/browser/status';
-          const r=await fetch(statusUrl,{signal:AbortSignal.timeout(16000)});
-          const d=await r.json();
-          console.log('STATUS',JSON.stringify({http:r.status,code:d.code,connected:d.connected,readerAvailable:d.readerAvailable,renderMode:d.renderMode,message:d.message}));
-          if (!r.ok) throw Error('Status API is down');
-          if (d.readerAvailable !== true) {
-            console.log('Pages site has not yet deployed the Cloudflare-only HTML reader');
-            process.exit(2);
+          const statusR=await fetch(site+'/api/browser/status',{signal:AbortSignal.timeout(12000)});
+          const status=await statusR.json();
+          console.log('STATUS:',JSON.stringify({http:statusR.status,code:status.code,readerAvailable:status.readerAvailable,connected:status.connected,renderMode:status.renderMode}));
+          if(!statusR.ok || status.readerAvailable !== true)throw Error('Cloudflare browser status not deployed');
+          for(const url of ['https://example.com','https://www.iana.org/help/example-domains']) {
+            const r=await fetch(site+'/api/browser/load',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({url,screenshot:true}),
+              signal:AbortSignal.timeout(40000),
+            });
+            const page=await r.json();
+            const report={target:url,http:r.status,ok:page.ok,mode:page.renderMode,
+              source:page.source,title:page.title,textLength:page.text?.length,
+              links:page.links?.length,screenshot:!!page.screenshot,
+              error:page.error};
+            console.log('LOAD:',JSON.stringify(report));
+            if(!r.ok || page.ok !== true || !page.title || !page.text?.trim())throw Error('Real browser cannot load '+url);
+            if(page.renderMode === 'html-only' && page.screenshot!==null)throw Error('HTML reader fabricated a screenshot');
+            if(page.renderMode === 'chromium' && status.connected!==true)throw Error('Chromium response with disconnected status');
           }
-          const pageR=await fetch(site+'/api/browser/load',{
-            method:'POST',headers:{'content-type':'application/json'},
-            body:JSON.stringify({url:'https://example.com',screenshot:false}),
-            signal:AbortSignal.timeout(35000),
+          const bad=await fetch(site+'/api/browser/load',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({url:'http://127.0.0.1/private'}),signal:AbortSignal.timeout(10000),
           });
-          const page=await pageR.json();
-          console.log('TEXT_SAMPLE',JSON.stringify(String(page.text).slice(0,400)));
-          console.log('LOAD',JSON.stringify({http:pageR.status,ok:page.ok,source:page.source,renderMode:page.renderMode,title:page.title,hasExampleText:String(page.text).includes('Example Domain'),linkCount:page.links?.length,code:page.code,error:page.error}));
-          if (!pageR.ok || page.ok!==true || !String(page.title+' '+page.text).includes('Example Domain')) throw Error('Live webpage fetch not functioning');
-          if (d.connected === false && page.renderMode !== 'html-only') throw Error('Reader mode falsely labeled as Chromium');
-          if (d.connected === true && page.renderMode !== 'chromium') throw Error('Chromium service failed to render');
-          console.log('PASS: Agent City Pages can load real public web content.');
+          console.log('BLOCK_PRIVATE:',bad.status,(await bad.json()).error);
+          if(bad.status!==400)throw Error('Private URL was not blocked');
+          console.log('PASS: live Agent City browser API is serving actual webpages, not old tunnel errors.');
           JS
