@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "server.js"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "scripts/verify-existing-server.js"
+      - "scripts/start-verified.sh"
       - "agent-terminal.js"
       - "scripts/verify-public-internet.js"
       - "package.json"
@@ -41,3 +45,30 @@ jobs:
 
       - name: Verify public HTTPS websites via real BrowserBro
         run: npm run verify:public
+
+  docker-browser-startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout browserbro
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build production Docker image
+        run: docker build -t browserbro:ci .
+
+      - name: Start actual BrowserBro container privately
+        run: docker run --rm -d --name browserbro-ci -p 127.0.0.1:3101:3101 browserbro:ci
+
+      - name: Open public websites using the Docker browser
+        run: node scripts/verify-existing-server.js
+
+      - name: Collect container logs and clean up
+        if: always()
+        run: |
+          docker logs browserbro-ci || true
+          docker rm -f browserbro-ci || true
