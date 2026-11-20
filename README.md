@@ -110,3 +110,22 @@ More in [examples/](examples/) and [API.md](API.md).
   real Chrome, or returns an honest error (`404 session_not_found`,
   `502 navigation_failed`, ...). See [SMOKE.md](SMOKE.md) for the verified
   smoke run.
+
+## Agent terminal (new)
+
+Open **[Agent terminal](/terminal.html)** after starting the Node server at `http://localhost:3101`. The link also appears on the dashboard. Choose or create a session and enter `open https://example.org` to navigate through **the real Playwright Chromium session**, or `read`, `title`, `click 'button'`, `fill 'input[name=q]' 'hello'`, `press 'input[name=q]' Enter`, `scroll 500`, `screenshot` or `help`.
+
+The terminal is also available to agents via the server's REST API:
+
+```sh
+curl -X POST http://localhost:3101/api/sessions/SESSION_ID/terminal -H 'Content-Type: application/json' -d '{"command":"open https://example.org"}'
+curl http://localhost:3101/api/sessions/SESSION_ID/terminal/history
+```
+
+The terminal has per-session command history (last 80 actions) and bounded **virtual** text files (`write`, `cat`, `append`, `ls`, `rm`), not host Linux file access. Sessions and virtual files are not durable across service restart. It deliberately **does not execute arbitrary Linux shell commands**. This limits how much access a connected agent has to the host machine.
+
+**Actual URL reachability:** BrowserBro's `open` command calls Playwright `page.goto`, retrieves the real title and displays the screenshot. If DNS, TLS, network, or the website fails, it returns an error rather than a fabricated result. To test public navigation on your own Linux instance, run `npm run smoke`, then manually try `open https://example.org` in the terminal. The test environment used for this update could not independently reach public DNS, so a live public-network result is not claimed.
+
+**Security:** The current Node server's browser API does not require authentication. Run it only on a trusted local interface or behind a secure authenticated reverse proxy/VPN. Do not expose `/api/sessions` or `/api/sessions/:id/terminal` directly to the public internet. Agent terminal URL filtering is best-effort and is not a substitute for egress firewall restrictions.
+
+Run the terminal unit tests with `npm run terminal-test`.
