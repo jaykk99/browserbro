@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>browserbro - free self-hosted browser</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e8e8e8; }
+  header { padding: 16px 20px; background: #171a21; border-bottom: 1px solid #2a2f3a; }
+  h1 { margin: 0; font-size: 20px; } h1 span { color: #7ee787; }
+  p.sub { margin: 4px 0 0; color: #9aa0a6; font-size: 13px; }
+  main { padding: 16px 20px; display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+  .card { background: #171a21; border: 1px solid #2a2f3a; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 15px; }
+  button { background: #238636; color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; cursor: pointer; margin: 2px; }
+  button.secondary { background: #30363d; } button.danger { background: #da3633; }
+  input, select { background: #0d1117; color: #e8e8e8; border: 1px solid #30363d; border-radius: 6px; padding: 7px; width: 100%; box-sizing: border-box; margin: 3px 0; }
+  label { font-size: 12px; color: #9aa0a6; }
+  #liveview { width: 100%; border: 1px solid #30363d; border-radius: 8px; background: #000; min-height: 300px; }
+  pre { background: #0d1117; padding: 10px; border-radius: 8px; overflow: auto; max-height: 320px; font-size: 12px; white-space: pre-wrap; }
+  .sess { padding: 8px; border: 1px solid #30363d; border-radius: 8px; margin: 6px 0; cursor: pointer; }
+  .sess.active { border-color: #7ee787; }
+  .sess small { color: #9aa0a6; display: block; word-break: break-all; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>browser<span>bro</span></h1>
+  <p class="sub">Self-hosted Browserbase replacement. Real Chrome, $0, no keys, no credits, no card.</p>
+</header>
+<main>
+  <div>
+    <div class="card">
+      <h2>Sessions</h2>
+      <input id="sessName" placeholder="Session name (optional)">
+      <label><input type="checkbox" id="persistent" style="width:auto"> Persistent context (survives restart)</label><br>
+      <button onclick="createSession()">+ New session</button>
+      <button class="secondary" onclick="loadSessions()">Refresh</button>
+      <div id="sessList"></div>
+    </div>
+    <div class="card">
+      <h2>Navigate / act</h2>
+      <input id="navUrl" placeholder="https://example.com" value="https://news.ycombinator.com">
+      <button onclick="navigate()">Go</button>
+      <input id="clickSel" placeholder="Click selector, e.g. a.storylink">
+      <button onclick="doClick()">Click</button>
+      <input id="evalExpr" placeholder="JS to evaluate, e.g. document.title">
+      <button onclick="doEval()">Run JS</button>
+      <button class="secondary" onclick="screenshot()">Screenshot</button>
+      <button class="secondary" onclick="downloadPdf()">PDF</button>
+      <button class="secondary" onclick="startReplay()">Start replay</button>
+      <button class="secondary" onclick="stopReplay()">Stop replay + MP4</button>
+      <button class="danger" onclick="deleteSession()">Delete session</button>
+    </div>
+    <div class="card">
+      <h2>Search / fetch (free, keyless)</h2>
+      <input id="searchQ" placeholder="Search DuckDuckGo, e.g. playwright">
+      <button onclick="doSearch()">Search</button>
+      <input id="fetchUrl" placeholder="Fetch URL, e.g. https://example.com">
+      <button onclick="doFetch()">Fetch</button>
+    </div>
+  </div>
+  <div>
+    <div class="card">
+      <h2>Live view <span id="liveUrl" style="color:#9aa0a6;font-size:12px"></span></h2>
+      <img id="liveview" alt="Live view - create a session and navigate first">
+      <p style="color:#9aa0a6;font-size:12px">Live view refreshes every second while a session is selected.</p>
+    </div>
+    <div class="card">
+      <h2>Output</h2>
+      <pre id="out">Create a session to begin.</pre>
+    </div>
+  </div>
+</main>
+<script>
+let current = null;
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const t = await r.text();
+  try { return { status: r.status, json: JSON.parse(t) }; } catch { return { status: r.status, text: t }; }
+}
+function show(x) { document.getElementById('out').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 2); }
+async function loadSessions() {
+  const r = await api('/api/sessions');
+  const list = document.getElementById('sessList');
+  list.innerHTML = '';
+  (r.json.sessions || []).forEach(s => {
+    const d = document.createElement('div');
+    d.className = 'sess' + (current === s.id ? ' active' : '');
+    d.innerHTML = `<b>${s.name}</b><small>${s.id}</small><small>${s.url || ''}</small>`;
+    d.onclick = () => { current = s.id; loadSessions(); refreshLive(); show(s); };
+    list.appendChild(d);
+  });
+}
+async function createSession() {
+  const r = await api('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: document.getElementById('sessName').value || undefined, persistent: document.getElementById('persistent').checked }) });
+  if (r.json.session) { current = r.json.session.id; }
+  show(r.json); loadSessions();
+}
+async function navigate() {
+  if (!current) return show('Create a session first.');
+  const r = await api(`/api/sessions/${current}/navigate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: document.getElementById('navUrl').value }) });
+  show(r.json); refreshLive();
+}
+async function doClick() {
+  if (!current) return show('Create a session first.');
+  const r = await api(`/api/sessions/${current}/click`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ selector: document.getElementById('clickSel').value }) });
+  show(r.json); refreshLive();
+}
+async function doEval() {
+  if (!current) return show('Create a session first.');
+  const r = await api(`/api/sessions/${current}/evaluate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expression: document.getElementById('evalExpr').value }) });
+  show(r.json);
+}
+function screenshot() { if (current) window.open(`/api/sessions/${current}/screenshot`, '_blank'); }
+function downloadPdf() { if (current) window.open(`/api/sessions/${current}/pdf`, '_blank'); }
+async function startReplay() { if (!current) return show('Create a session first.'); show(await (await api(`/api/sessions/${current}/replay/start`, { method: 'POST' })).json); }
+async function stopReplay() {
+  if (!current) return show('Create a session first.');
+  const r = await api(`/api/sessions/${current}/replay/stop`, { method: 'POST' });
+  show(r.json);
+  if (r.json.ok) window.open(`/api/sessions/${current}/replay`, '_blank');
+}
+async function deleteSession() {
+  if (!current) return show('Create a session first.');
+  const r = await api(`/api/sessions/${current}`, { method: 'DELETE' });
+  current = null; show(r.json); loadSessions();
+}
+async function doSearch() {
+  const r = await api('/api/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: document.getElementById('searchQ').value }) });
+  show(r.json);
+}
+async function doFetch() {
+  const r = await api('/api/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: document.getElementById('fetchUrl').value }) });
+  show(r.json);
+}
+async function refreshLive() {
+  if (!current) return;
+  const img = document.getElementById('liveview');
+  img.src = `/api/sessions/${current}/live?t=${Date.now()}`;
+  const r = await api(`/api/sessions/${current}/url`);
+  if (r.json.url) document.getElementById('liveUrl').textContent = r.json.url;
+}
+setInterval(refreshLive, 1000);
+loadSessions();
+</script>
+</body>
+</html>

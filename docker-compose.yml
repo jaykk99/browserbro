@@ -1,0 +1,10 @@
+services:
+  browserbro:
+    build: .
+    ports:
+      - "3101:3101"
+    environment:
+      - BROWSERBRO_PORT=3101
+      # - BROWSERBRO_PROXY=http://proxy.example:8080
+    volumes:
+      - ./data:/app/data

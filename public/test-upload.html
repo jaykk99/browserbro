@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>browserbro upload test</title></head>
+<body>
+  <h1>File Upload Test</h1>
+  <p>This page exists so the upload endpoint can be exercised against a real
+  form in a real browser without depending on a remote test site.</p>
+  <form id="upload-form">
+    <input type="file" id="file-upload" name="file-upload">
+    <button type="submit" id="file-submit">Upload</button>
+  </form>
+  <div id="result"></div>
+  <script>
+    document.getElementById('upload-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      const input = document.getElementById('file-upload');
+      if (input.files[0]) fd.append('file-upload', input.files[0]);
+      const r = await fetch('/api/test-upload', { method: 'POST', body: fd });
+      const j = await r.json();
+      document.getElementById('result').textContent = j.ok
+        ? 'File Uploaded: ' + j.file + ' (' + j.bytes + ' bytes)'
+        : 'Upload failed: ' + (j.error || 'unknown');
+    });
+  </script>
+</body>
+</html>
