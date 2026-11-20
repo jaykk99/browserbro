@@ -10,6 +10,9 @@ const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
+// Private by default: the browser API has no authentication yet.
+// Docker binds to all container interfaces explicitly; host ports stay loopback-only.
+const HOST = process.env.BROWSERBRO_HOST || '127.0.0.1';
 // Optional: point at a system Chrome/Chromium instead of the Playwright download.
 // e.g. BROWSERBRO_CHROME_PATH=/opt/meta-chromium/chrome
 const CHROME_PATH = process.env.BROWSERBRO_CHROME_PATH || process.env.CHROME_PATH || null;
@@ -540,7 +543,7 @@ app.post('/api/fetch', async (req, res) => {
 // ---- fallback errors ------------------------------------------------------
 app.use('/api', (req, res) => res.status(404).json({ ok: false, error: 'unknown_api_route', path: req.path }));
 
-app.listen(PORT, () => {
-  console.log(`browserbro listening on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`browserbro listening on http://${HOST}:${PORT}`);
   console.log('health: GET /api/health | dashboard: /');
 });
