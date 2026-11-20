@@ -147,3 +147,12 @@ The verification script starts an actual local BrowserBro server and a real Chro
 Every push to the relevant browser code runs the same live verification in [GitHub Actions](https://github.com/jaykk99/browserbro/actions/workflows/public-internet.yml) on Ubuntu 24.04, because the current Playwright version does not support Ubuntu 26.04. Passing GitHub Actions proves outbound HTTPS navigation **from the GitHub runner**. It does not prove that your own Chromebook has working DNS/proxy/firewall settings; run `npm run verify:public` on the Chromebook to check its actual network.
 
 **Note:** This verifies outbound web browsing, not public inbound access to the BrowserBro dashboard. The current HTTP browser API is unauthenticated; do not expose it to the open internet without an authentication layer and an HTTPS reverse proxy.
+
+
+## Verified one-command Linux startup
+
+From your Linux checkout, use `npm run start:verified`. This command installs missing npm dependencies and Chromium, runs agent terminal unit tests, and **loads real HTTPS websites using a real BrowserBro Chromium session before starting the UI**. It fails visibly if DNS or outbound internet browsing is unavailable. The UI is at `http://localhost:3101/terminal.html`.
+
+The API listens on `127.0.0.1` by default, because it is currently unauthenticated. Docker explicitly binds inside the container, with its published port restricted to the host loopback interface. Public tunnels should **not** be used without authorization and TLS protection.
+
+GitHub Actions also tests both the Node and Docker production versions against live HTTPS URLs. The green CI run verifies internet access from GitHub's Linux workers; only running `npm run start:verified` on your Chromebook verifies the Chromebook's own network and browser dependencies.
