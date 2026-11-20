@@ -1,4 +1,4 @@
-name: Inspect live Agent City Cloudflare deployment
+name: Inspect live Agent City Cloudflare deployment after guard merge
 on:
   push:
     branches:
