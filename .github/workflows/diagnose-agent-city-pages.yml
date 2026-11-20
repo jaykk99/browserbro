@@ -30,6 +30,7 @@ jobs:
             signal:AbortSignal.timeout(35000),
           });
           const page=await pageR.json();
+          console.log('TEXT_SAMPLE',JSON.stringify(String(page.text).slice(0,400)));
           console.log('LOAD',JSON.stringify({http:pageR.status,ok:page.ok,source:page.source,renderMode:page.renderMode,title:page.title,hasExampleText:String(page.text).includes('Example Domain'),linkCount:page.links?.length,code:page.code,error:page.error}));
           if (!pageR.ok || page.ok!==true || !String(page.title+' '+page.text).includes('Example Domain')) throw Error('Live webpage fetch not functioning');
           if (d.connected === false && page.renderMode !== 'html-only') throw Error('Reader mode falsely labeled as Chromium');
