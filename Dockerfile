@@ -2,7 +2,7 @@ FROM mcr.microsoft.com/playwright:v1.54.0-noble
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server.js agent-terminal.js ./
+COPY server.js agent-terminal.js api-auth.js ./
 COPY public ./public
 COPY scripts ./scripts
 RUN mkdir -p data
