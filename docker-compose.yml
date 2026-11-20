@@ -2,9 +2,11 @@ services:
   browserbro:
     build: .
     ports:
-      - "3101:3101"
+      # Do NOT expose the unauthenticated browser API on every host interface.
+      - "127.0.0.1:3101:3101"
     environment:
       - BROWSERBRO_PORT=3101
+      - BROWSERBRO_HOST=0.0.0.0
       # - BROWSERBRO_PROXY=http://proxy.example:8080
     volumes:
       - ./data:/app/data
