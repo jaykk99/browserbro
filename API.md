@@ -78,3 +78,17 @@ noted. Errors are honest: `404 {ok:false, error:"session_not_found"}`,
 ## Dashboard
 
 `GET /` — the dashboard UI (static, `public/index.html`).
+
+## Agent terminal
+
+The terminal is session-scoped and drives the same **real Chromium** page as the browser API. It intentionally does not execute a host OS shell.
+
+| Method | Path | Body / response |
+|---|---|---|
+| POST | `/api/sessions/:id/terminal` | `{ "command": "open https://example.org" }` → `{ok, output, url?, browserChanged?, screenshotUrl?}` |
+| GET | `/api/sessions/:id/terminal/history` | `{ok:true, entries:[{command,output,createdAt,exitCode}]}` (last 80 commands) |
+| DELETE | `/api/sessions/:id/terminal/history` | `{ok:true}` |
+
+Commands: `help`, `status`, `open`/`browse`, `read`, `url`, `title`, `click`, `fill`, `press`, `scroll`, `screenshot`, `pwd`, `ls`, `cat`, `write`, `append`, `rm`. Workspace files are virtual and in-memory, limited to 32 KiB each. Session terminal history and workspace files disappear on server restart or session deletion.
+
+**Warning:** the existing browser API is unauthenticated. Keep this service private (localhost or private VPN) until an authentication layer is added; never expose it as a public unrestricted browser/agent gateway.
