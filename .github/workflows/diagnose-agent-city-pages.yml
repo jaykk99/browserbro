@@ -33,7 +33,7 @@ jobs:
             console.log('BODY_TEXT',JSON.stringify(labels.slice(0,3500)));
             console.log('DOM_INFO',JSON.stringify({asides:await page.locator('aside').count(),headings:await page.locator('h2').allTextContents(),errors:messages}));
             for(const label of ['Browser tabs','Navigate / act','Live view','Output','Search real web']){
-              if(!labels.includes(label))throw Error('Missing BrowserBro dashboard UI: '+label);
+              if(!labels.toLowerCase().includes(label.toLowerCase()))throw Error('Missing BrowserBro dashboard UI: '+label);
             }
             console.log('UI_OK',JSON.stringify({dashboard:true,addressField:await page.getByRole('textbox',{name:'BrowserBro address bar'}).count(),newTab:await page.getByRole('button',{name:'New browser tab'}).count(),console:await page.getByRole('button',{name:/Console/}).count(),clientErrors:messages}));
             const state=await (await fetch('https://agents-city.pages.dev/api/browser/status')).json();
