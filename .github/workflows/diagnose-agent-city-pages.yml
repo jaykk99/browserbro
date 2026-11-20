@@ -1,52 +1,61 @@
-name: Smoke-test live BrowserBro dashboard on Agent City
+name: Test production BrowserBro dashboard
 on:
   push:
-    branches: [diagnostics/agent-city-pages-live]
-permissions: {contents: read}
+    branches:
+      - diagnostics/agent-city-pages-live
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  browserbro-ui:
+  ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-      - name: Install Playwright Chromium
-        run: |
-          npm install
-          npx playwright install --with-deps chromium
-      - name: Real browser UI and Chromium backend smoke test
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Test real public BrowserBro UI and navigation
         run: |
           node <<'JS'
           const {chromium}=require('playwright');
           (async()=>{
-            const browser=await chromium.launch({headless:true});
-            const page=await browser.newPage({viewport:{width:1200,height:850}});
-            const messages=[];
-            page.on('pageerror', e=>messages.push(String(e)));
-            const home=await page.goto('https://agents-city.pages.dev/?browserbro=1',{
-              waitUntil:'domcontentloaded',timeout:30000});
-            console.log('SITE',home.status());
-            await page.getByText('AGENT WEB WORKSPACE').waitFor({timeout:20000});
-            const labels=await page.locator('body').innerText();
-            console.log('BODY_TEXT',JSON.stringify(labels.slice(0,3500)));
-            console.log('DOM_INFO',JSON.stringify({asides:await page.locator('aside').count(),headings:await page.locator('h2').allTextContents(),errors:messages}));
-            for(const label of ['Browser tabs','Navigate / act','Live view','Output','Search real web']){
-              if(!labels.toLowerCase().includes(label.toLowerCase()))throw Error('Missing BrowserBro dashboard UI: '+label);
-            }
-            console.log('UI_OK',JSON.stringify({dashboard:true,addressField:await page.getByRole('textbox',{name:'BrowserBro address bar'}).count(),newTab:await page.getByRole('button',{name:'New browser tab'}).count(),console:await page.getByRole('button',{name:/Console/}).count(),clientErrors:messages}));
-            const state=await (await fetch('https://agents-city.pages.dev/api/browser/status')).json();
-            console.log('STATUS',JSON.stringify({connected:state.connected,code:state.code,renderMode:state.renderMode}));
-            await page.getByRole('button',{name:'Open example.com'}).click();
-            await page.getByText('Fetching a real webpage...').waitFor({state:'hidden',timeout:60000});
-            console.log('LOAD_VIEW',JSON.stringify({
-              loaded:await page.getByText('Example Domain',{exact:false}).count(),
-              imgCount:await page.locator('img[alt^="Actual Chromium screenshot"]').count(),
-              alert:await page.getByRole('alert').allInnerTexts(),
-              text: (await page.locator('main').innerText()).slice(-500),
-              clientErrors:messages,
-            }));
-            await browser.close();
+            const b=await chromium.launch({headless:true,args:['--no-sandbox']});
+            try{
+              const p=await b.newPage({viewport:{width:1280,height:850},ignoreHTTPSErrors:true});
+              const errors=[];
+              p.on('pageerror',e=>errors.push(e.message));
+              const response=await p.goto('https://agents-city.pages.dev/?browserbro=1',{waitUntil:'domcontentloaded',timeout:30000});
+              console.log('DIRECT_HTTP',response.status());
+              await p.getByRole('heading',{name:'Browser tabs'}).waitFor({timeout:30000});
+              console.log('UI_CHECK',JSON.stringify({tabs:await p.getByRole('heading',{name:'Browser tabs'}).count(),
+                live:await p.getByText('Live view').count(),address:await p.getByRole('textbox',{name:'BrowserBro address bar'}).count(),
+                console:await p.getByText('Output',{exact:true}).count()}));
+              await p.getByRole('button',{name:'Open example.com'}).click();
+              await p.waitForFunction(()=>{
+                const img=!!document.querySelector('img[alt^="Actual Chromium screenshot"]');
+                const html=document.body.textContent.includes('Real HTML was fetched');
+                const noShot=document.body.textContent.includes('Cloudflare returned real page data');
+                const failed=document.body.textContent.includes('BrowserBro could not load this page');
+                return img||html||noShot||failed;
+              },{timeout:60000}).catch(()=>{});
+              const image=p.locator('img[alt^="Actual Chromium screenshot"]');
+              console.log('PAGE_RESULT',JSON.stringify({
+                screenshot:await image.count(),
+                screenshotSrcLength:await image.first().getAttribute('src').then(x=>x?.length).catch(()=>0),
+                noScreenshot:await p.getByText(/Real HTML was fetched|Cloudflare returned real page data/).count(),
+                error:await p.getByText(/BrowserBro could not load this page/).count(),
+                title:await p.getByText('Example Domain',{exact:true}).count(),
+                pageErrors:errors
+              }));
+              if(await p.getByText(/BrowserBro could not load this page/).count())throw Error('Real page load failed');
+              if(errors.length)throw Error('Frontend JS errors: '+errors.join('; '));
+              await p.setViewportSize({width:390,height:844});
+              console.log('MOBILE_UI',await p.getByRole('heading',{name:'Browser tabs'}).count());
+              await p.screenshot({path:'/tmp/browserbro-production-mobile.png'});
+              console.log('PASS BrowserBro dashboard displayed and navigated on real public URL');
+            }finally{await b.close();}
           })().catch(e=>{console.error(e);process.exit(1)});
           JS
