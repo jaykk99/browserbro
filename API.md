@@ -91,4 +91,4 @@ The terminal is session-scoped and drives the same **real Chromium** page as the
 
 Commands: `help`, `status`, `open`/`browse`, `read`, `url`, `title`, `click`, `fill`, `press`, `scroll`, `screenshot`, `pwd`, `ls`, `cat`, `write`, `append`, `rm`. Workspace files are virtual and in-memory, limited to 32 KiB each. Session terminal history and workspace files disappear on server restart or session deletion.
 
-**Warning:** the existing browser API is unauthenticated. Keep this service private (localhost or private VPN) until an authentication layer is added; never expose it as a public unrestricted browser/agent gateway.
+`BROWSERBRO_TOKEN` (optional) requires `Authorization: Bearer <token>` for every `/api/*` endpoint, including `/api/health` and agent-terminal commands. Without a token, the API is unauthenticated and **must remain loopback-only or behind a trusted private gateway**. Use TLS and a strong bearer token for remote access; never expose unrestricted browser automation on the public internet.

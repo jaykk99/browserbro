@@ -9,7 +9,8 @@
     "smoke": "node smoke.js",
     "terminal-test": "node --test tests/agent-terminal.test.js",
     "verify:public": "node scripts/verify-public-internet.js",
-    "start:verified": "bash scripts/start-verified.sh"
+    "start:verified": "bash scripts/start-verified.sh",
+    "auth-test": "node --test tests/api-auth.test.js"
   },
   "keywords": [],
   "author": "",

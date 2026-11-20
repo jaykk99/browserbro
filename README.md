@@ -156,3 +156,29 @@ From your Linux checkout, use `npm run start:verified`. This command installs mi
 The API listens on `127.0.0.1` by default, because it is currently unauthenticated. Docker explicitly binds inside the container, with its published port restricted to the host loopback interface. Public tunnels should **not** be used without authorization and TLS protection.
 
 GitHub Actions also tests both the Node and Docker production versions against live HTTPS URLs. The green CI run verifies internet access from GitHub's Linux workers; only running `npm run start:verified` on your Chromebook verifies the Chromebook's own network and browser dependencies.
+
+## Agent City integration (Linux computers)
+
+Agent City now has a same-host Node bridge at `/api/browser/status`,
+`/api/browser/load`, and `/api/browser/search` (see
+[Agents-city/BROWSERBRO.md](https://github.com/jaykk99/Agents-city/blob/main/BROWSERBRO.md)
+after its integration PR is merged). Start BrowserBro on
+`127.0.0.1:3101` and Agent City on `127.0.0.1:3000` on the **same
+Linux host**. Agent City requests real Chromium pages, not an AI-generated
+mockup.
+
+For remote HTTPS gateways, enable server-side bearer authentication:
+
+```sh
+export BROWSERBRO_TOKEN="$(openssl rand -hex 32)"
+npm start
+```
+
+Set the **same secret** on the Agent City backend as `BROWSERBRO_TOKEN`.
+The secret is never sent to the Agent City web frontend. Keep the gateway
+behind HTTPS and access controls. When auth is enabled, the standalone
+BrowserBro dashboard needs an authenticated API client/proxy; its browser
+JavaScript does not store or inject the bearer token.
+
+Test token enforcement with `npm run auth-test`. A token authenticates the
+caller, but is not a browser sandbox or an internet egress firewall.
