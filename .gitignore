@@ -1,3 +1,4 @@
 node_modules/
 data/
 *.log
+PUBLIC_URL.txt
