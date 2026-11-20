@@ -30,6 +30,8 @@ jobs:
             console.log('SITE',home.status());
             await page.getByText('AGENT WEB WORKSPACE').waitFor({timeout:20000});
             const labels=await page.locator('body').innerText();
+            console.log('BODY_TEXT',JSON.stringify(labels.slice(0,3500)));
+            console.log('DOM_INFO',JSON.stringify({asides:await page.locator('aside').count(),headings:await page.locator('h2').allTextContents(),errors:messages}));
             for(const label of ['Browser tabs','Navigate / act','Live view','Output','Search real web']){
               if(!labels.includes(label))throw Error('Missing BrowserBro dashboard UI: '+label);
             }
