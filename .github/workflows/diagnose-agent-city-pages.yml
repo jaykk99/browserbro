@@ -1,4 +1,4 @@
-name: Diagnose Agent City Pages BrowserBro
+name: Diagnose live Agent City Cloudflare browser
 on:
   push:
     branches:
@@ -7,34 +7,32 @@ on:
 permissions:
   contents: read
 jobs:
-  remote-pages-check:
+  live-pages:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Check public Pages status and UI
-        shell: bash
+      - name: Verify public Cloudflare Pages browser APIs
         run: |
           node <<'JS'
           const site='https://agents-city.pages.dev';
-          for (const path of ['/','/api/browser/status']) {
-            try {
-              const r=await fetch(site+path,{signal:AbortSignal.timeout(12000),headers:{'User-Agent':'BrowserBro-city-diagnostics/1.0'}});
-              const body=await r.text();
-              console.log('URL',site+path,'HTTP',r.status,'content-type',r.headers.get('content-type'),'bytes',body.length);
-              if (path==='/api/browser/status') {
-                try {
-                  const d=JSON.parse(body);
-                  console.log('BrowserBro status:',JSON.stringify({
-                    ok:d.ok,connected:d.connected,code:d.code,source:d.source,message:d.message,
-                  }));
-                } catch {
-                  console.log('Status response is not JSON, first 100 bytes:',body.slice(0,100));
-                }
-              } else {
-                console.log('UI has BrowserBro label:',body.includes('BrowserBro'));
-              }
-            } catch(e) {
-              console.log('Check failure',path,e?.message||String(e));
-            }
+          const statusUrl=site+'/api/browser/status';
+          const r=await fetch(statusUrl,{signal:AbortSignal.timeout(16000)});
+          const d=await r.json();
+          console.log('STATUS',JSON.stringify({http:r.status,code:d.code,connected:d.connected,readerAvailable:d.readerAvailable,renderMode:d.renderMode,message:d.message}));
+          if (!r.ok) throw Error('Status API is down');
+          if (d.readerAvailable !== true) {
+            console.log('Pages site has not yet deployed the Cloudflare-only HTML reader');
+            process.exit(2);
           }
+          const pageR=await fetch(site+'/api/browser/load',{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({url:'https://example.com',screenshot:false}),
+            signal:AbortSignal.timeout(35000),
+          });
+          const page=await pageR.json();
+          console.log('LOAD',JSON.stringify({http:pageR.status,ok:page.ok,source:page.source,renderMode:page.renderMode,title:page.title,hasExampleText:String(page.text).includes('Example Domain'),linkCount:page.links?.length,code:page.code,error:page.error}));
+          if (!pageR.ok || page.ok!==true || !String(page.title+' '+page.text).includes('Example Domain')) throw Error('Live webpage fetch not functioning');
+          if (d.connected === false && page.renderMode !== 'html-only') throw Error('Reader mode falsely labeled as Chromium');
+          if (d.connected === true && page.renderMode !== 'chromium') throw Error('Chromium service failed to render');
+          console.log('PASS: Agent City Pages can load real public web content.');
           JS
