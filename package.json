@@ -6,7 +6,8 @@
   "license": "ISC",
   "scripts": {
     "start": "node server.js",
-    "smoke": "node smoke.js"
+    "smoke": "node smoke.js",
+    "terminal-test": "node --test tests/agent-terminal.test.js"
   },
   "keywords": [],
   "author": "",
