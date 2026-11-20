@@ -129,3 +129,21 @@ The terminal has per-session command history (last 80 actions) and bounded **vir
 **Security:** The current Node server's browser API does not require authentication. Run it only on a trusted local interface or behind a secure authenticated reverse proxy/VPN. Do not expose `/api/sessions` or `/api/sessions/:id/terminal` directly to the public internet. Agent terminal URL filtering is best-effort and is not a substitute for egress firewall restrictions.
 
 Run the terminal unit tests with `npm run terminal-test`.
+
+
+## Verify real public internet and URL loading
+
+Run the independent **real-Chromium live test** on Linux (Node.js 22+ and Playwright Chromium installed):
+
+```bash
+npm ci
+npx playwright install chromium
+npm run terminal-test
+npm run verify:public
+```
+
+The verification script starts an actual local BrowserBro server and a real Chromium session. It resolves the external public domains, runs the **agent terminal** `open https://example.com` and `open https://github.com`, reads both page titles and text, and validates real PNG screenshot bytes. It also checks the regular dashboard **Go** endpoint (`POST /api/sessions/:id/navigate`) with `https://example.org`, and confirms that an intentionally invalid domain yields a navigation error instead of fabricated success. A failing DNS, TLS, browser, or webpage check exits nonzero with diagnostics.
+
+Every push to the relevant browser code runs the same live verification in [GitHub Actions](https://github.com/jaykk99/browserbro/actions/workflows/public-internet.yml) on Ubuntu 24.04, because the current Playwright version does not support Ubuntu 26.04. Passing GitHub Actions proves outbound HTTPS navigation **from the GitHub runner**. It does not prove that your own Chromebook has working DNS/proxy/firewall settings; run `npm run verify:public` on the Chromebook to check its actual network.
+
+**Note:** This verifies outbound web browsing, not public inbound access to the BrowserBro dashboard. The current HTTP browser API is unauthenticated; do not expose it to the open internet without an authentication layer and an HTTPS reverse proxy.
