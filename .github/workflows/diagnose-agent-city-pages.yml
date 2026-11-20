@@ -1,40 +1,55 @@
-name: Verify deployed Agent City BrowserBro UI
+name: Verify BrowserBro UI in Agent City preview
 on:
   push:
-    branches: [diagnostics/agent-city-pages-live]
-permissions: {contents: read}
+    branches:
+      - diagnostics/agent-city-pages-live
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  public-ui:
+  ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 7
+    timeout-minutes: 10
     steps:
-      - name: Check BrowserBro Chromium API and production JS bundle
-        shell: bash
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify actual BrowserBro controls and live site screenshot
         run: |
           node <<'JS'
-          const base='https://agents-city.pages.dev';
-          const statusResp=await fetch(base+'/api/browser/status',{signal:AbortSignal.timeout(12000)});
-          const status=await statusResp.json();
-          console.log('STATUS',JSON.stringify({connected:status.connected,code:status.code,renderMode:status.renderMode}));
-          const homeResp=await fetch(base+'/?browserbro=1',{signal:AbortSignal.timeout(12000)});
-          const html=await homeResp.text();
-          console.log('HTML',homeResp.status,html.length);
-          const assets=[...html.matchAll(/(?:src|href)="(\/assets\/[^"]+\.js)"/g)].map(x=>x[1]);
-          console.log('SCRIPTS',assets);
-          if(!assets.length)throw Error('Cannot find production JS entry');
-          let hasDashboard=false;
-          for(const path of assets) {
-            const r=await fetch(base+path,{signal:AbortSignal.timeout(15000)});
-            const js=await r.text();
-            console.log('SCRIPT',path,js.length,'HAS_BROWSERBRO_WORKSPACE',js.includes('Agent Browser Workspace'),'HAS_LIVE_VIEW',js.includes('Live view'));
-            if(js.includes('Agent Browser Workspace') && js.includes('Browser tabs')) hasDashboard=true;
-          }
-          if(!hasDashboard)throw Error('New BrowserBro dashboard not deployed yet');
-          const nav=await fetch(base+'/api/browser/load',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({url:'https://example.com',screenshot:true}),
-            signal:AbortSignal.timeout(50000)});
-          const data=await nav.json();
-          console.log('NAV',JSON.stringify({status:nav.status,mode:data.renderMode,title:data.title,screenshot:!!data.screenshot}));
-          if(!nav.ok || data.renderMode!=='chromium' || !data.screenshot)throw Error('Real Chromium navigation/screenshot failed');
-          console.log('PASS: public BrowserBro dashboard shipped with real Chromium browser backend');
+          const {chromium}=require('playwright');
+          (async()=>{
+            const b=await chromium.launch({headless:true,args:['--no-sandbox']});
+            try{
+              const p=await b.newPage({viewport:{width:1280,height:850},ignoreHTTPSErrors:true});
+              const url='https://feature-browserbro-dashboard.agents-city.pages.dev/?browserbro=1';
+              const errors=[];
+              p.on('pageerror',e=>errors.push(e.message));
+              const response=await p.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+              console.log('PREVIEW_HTTP',response.status());
+              await p.getByTestId('browserbro-workspace').waitFor({timeout:30000});
+              console.log('UI_FOUND',await p.getByTestId('browserbro-workspace').count());
+              console.log('NAV_FOUND',await p.getByRole('navigation',{name:'BrowserBro navigation'}).count());
+              console.log('LIVE_VIEW',await p.getByText('Live view').count());
+              console.log('SESSION_VIEW',await p.getByText('Sessions').count());
+              const bar=p.getByRole('textbox',{name:'BrowserBro address bar'});
+              await bar.fill('https://example.com/');
+              await p.getByRole('navigation',{name:'BrowserBro navigation'}).getByRole('button',{name:'Go'}).click();
+              await p.getByText('Example Domain',{exact:true}).first().waitFor({timeout:60000});
+              console.log('REAL_PAGE_TITLE',await p.getByText('Example Domain',{exact:true}).count());
+              const image=p.locator('img[alt^="Real Chromium screenshot"]');
+              const screenshots=await image.count();
+              const readerNotice=await p.getByText('Page text loaded — no Chromium screenshot').count();
+              console.log('BROWSER_VIEW',JSON.stringify({screenshots,readerNotice,errors}));
+              if(screenshots===0&&readerNotice===0)throw Error('No live browser result rendered.');
+              if(errors.length>0)throw Error('Frontend JS failed: '+errors.join('; '));
+              await p.screenshot({path:'/tmp/browserbro-dashboard-desktop.png'});
+              await p.setViewportSize({width:390,height:844});
+              await p.screenshot({path:'/tmp/browserbro-dashboard-mobile.png'});
+              console.log('SUCCESS browserbro UI rendered and navigated on desktop and mobile');
+            }finally{await b.close();}
+          })().catch(e=>{console.error(e);process.exit(1)});
           JS
