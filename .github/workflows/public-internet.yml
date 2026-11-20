@@ -2,7 +2,7 @@ name: Public internet browser verification
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/secure-agent-city-gateway]
     paths:
       - "server.js"
       - "Dockerfile"
@@ -15,6 +15,7 @@ on:
       - "package-lock.json"
       - "tests/**"
       - ".github/workflows/public-internet.yml"
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -42,6 +43,9 @@ jobs:
 
       - name: Run agent terminal tests
         run: npm run terminal-test
+
+      - name: Run authenticated gateway tests
+        run: npm run auth-test
 
       - name: Verify public HTTPS websites via real BrowserBro
         run: npm run verify:public

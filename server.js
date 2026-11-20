@@ -8,6 +8,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
+const { apiAuth } = require('./api-auth');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Private by default: the browser API has no authentication yet.
@@ -33,6 +34,9 @@ if (!process.env.TMPDIR) process.env.TMPDIR = TMP_DIR;
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+// All privileged API endpoints require a bearer token when configured.
+// Agent City supplies this token server-side; never expose it to browser JS.
+app.use('/api', apiAuth(process.env.BROWSERBRO_TOKEN));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // One bad promise must never kill the server.
