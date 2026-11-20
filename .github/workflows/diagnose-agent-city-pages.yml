@@ -1,37 +1,40 @@
-name: BrowserBro Cloudflare live snapshot validation
+name: Verify deployed Agent City BrowserBro UI
 on:
   push:
-    branches:
-      - diagnostics/agent-city-pages-live
-  workflow_dispatch:
-permissions:
-  contents: read
+    branches: [diagnostics/agent-city-pages-live]
+permissions: {contents: read}
 jobs:
-  site:
+  public-ui:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
-      - name: Verify Cloudflare binding and screenshot
+      - name: Check BrowserBro Chromium API and production JS bundle
+        shell: bash
         run: |
           node <<'JS'
           const base='https://agents-city.pages.dev';
-          try {
-            const stR=await fetch(base+'/api/browser/status?verify='+Date.now(),{headers:{'cache-control':'no-cache'},signal:AbortSignal.timeout(15000)});
-            const st=await stR.json();
-            console.log('STATUS',JSON.stringify({
-              http:stR.status,connected:st.connected,code:st.code,source:st.source,mode:st.renderMode,reader:st.readerAvailable,message:st.message,
-            }));
-            const r=await fetch(base+'/api/browser/load',{
-              method:'POST',headers:{'content-type':'application/json','cache-control':'no-cache'},
-              body:JSON.stringify({url:'https://example.com/',screenshot:true}),
-              signal:AbortSignal.timeout(45000),
-            });
-            const page=await r.json();
-            const report={http:r.status,ok:page.ok,source:page.source,renderMode:page.renderMode,
-              title:page.title,textLength:page.text?.length,links:page.links?.length,
-              screenshot:typeof page.screenshot==='string' && page.screenshot.startsWith('data:image/png;base64,'),
-              screenshotBytes:page.screenshot?.length || 0,code:page.code,error:page.error,warning:page.warning};
-            console.log('PAGE',JSON.stringify(report));
-            if(!r.ok)process.exitCode=1;
-          }catch(e){console.log('CHECK_ERROR',String(e));process.exitCode=1;}
+          const statusResp=await fetch(base+'/api/browser/status',{signal:AbortSignal.timeout(12000)});
+          const status=await statusResp.json();
+          console.log('STATUS',JSON.stringify({connected:status.connected,code:status.code,renderMode:status.renderMode}));
+          const homeResp=await fetch(base+'/?browserbro=1',{signal:AbortSignal.timeout(12000)});
+          const html=await homeResp.text();
+          console.log('HTML',homeResp.status,html.length);
+          const assets=[...html.matchAll(/(?:src|href)="(\/assets\/[^"]+\.js)"/g)].map(x=>x[1]);
+          console.log('SCRIPTS',assets);
+          if(!assets.length)throw Error('Cannot find production JS entry');
+          let hasDashboard=false;
+          for(const path of assets) {
+            const r=await fetch(base+path,{signal:AbortSignal.timeout(15000)});
+            const js=await r.text();
+            console.log('SCRIPT',path,js.length,'HAS_BROWSERBRO_WORKSPACE',js.includes('Agent Browser Workspace'),'HAS_LIVE_VIEW',js.includes('Live view'));
+            if(js.includes('Agent Browser Workspace') && js.includes('Browser tabs')) hasDashboard=true;
+          }
+          if(!hasDashboard)throw Error('New BrowserBro dashboard not deployed yet');
+          const nav=await fetch(base+'/api/browser/load',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({url:'https://example.com',screenshot:true}),
+            signal:AbortSignal.timeout(50000)});
+          const data=await nav.json();
+          console.log('NAV',JSON.stringify({status:nav.status,mode:data.renderMode,title:data.title,screenshot:!!data.screenshot}));
+          if(!nav.ok || data.renderMode!=='chromium' || !data.screenshot)throw Error('Real Chromium navigation/screenshot failed');
+          console.log('PASS: public BrowserBro dashboard shipped with real Chromium browser backend');
           JS
