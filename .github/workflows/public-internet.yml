@@ -1,0 +1,43 @@
+name: Public internet browser verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server.js"
+      - "agent-terminal.js"
+      - "scripts/verify-public-internet.js"
+      - "package.json"
+      - "package-lock.json"
+      - "tests/**"
+      - ".github/workflows/public-internet.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-chromium-public-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout browserbro
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Install real Chromium and libraries
+        run: npx playwright install --with-deps chromium
+
+      - name: Run agent terminal tests
+        run: npm run terminal-test
+
+      - name: Verify public HTTPS websites via real BrowserBro
+        run: npm run verify:public
