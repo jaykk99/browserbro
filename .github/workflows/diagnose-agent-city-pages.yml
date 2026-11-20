@@ -1,0 +1,40 @@
+name: Diagnose Agent City Pages BrowserBro
+on:
+  push:
+    branches:
+      - diagnostics/agent-city-pages-live
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remote-pages-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check public Pages status and UI
+        shell: bash
+        run: |
+          node <<'JS'
+          const site='https://agents-city.pages.dev';
+          for (const path of ['/','/api/browser/status']) {
+            try {
+              const r=await fetch(site+path,{signal:AbortSignal.timeout(12000),headers:{'User-Agent':'BrowserBro-city-diagnostics/1.0'}});
+              const body=await r.text();
+              console.log('URL',site+path,'HTTP',r.status,'content-type',r.headers.get('content-type'),'bytes',body.length);
+              if (path==='/api/browser/status') {
+                try {
+                  const d=JSON.parse(body);
+                  console.log('BrowserBro status:',JSON.stringify({
+                    ok:d.ok,connected:d.connected,code:d.code,source:d.source,message:d.message,
+                  }));
+                } catch {
+                  console.log('Status response is not JSON, first 100 bytes:',body.slice(0,100));
+                }
+              } else {
+                console.log('UI has BrowserBro label:',body.includes('BrowserBro'));
+              }
+            } catch(e) {
+              console.log('Check failure',path,e?.message||String(e));
+            }
+          }
+          JS
