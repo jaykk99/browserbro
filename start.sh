@@ -30,7 +30,7 @@ fi
 if ! curl -s --max-time 5 http://localhost:3101/api/health | grep -q '"ok":true'; then
   pkill -f "node server.js" 2>/dev/null
   sleep 1
-  (cd "$BB_DIR" && setsid env BROWSERBRO_PROXY=http://127.0.0.1:3129 node server.js < /dev/null > $LOG_DIR/browserbro.log 2>&1 &)
+  (cd "$BB_DIR" && setsid env NODE_USE_ENV_PROXY=1 BROWSERBRO_PROXY=http://127.0.0.1:3129 node server.js < /dev/null > $LOG_DIR/browserbro.log 2>&1 &)
   sleep 4
 fi
 
@@ -42,7 +42,11 @@ sleep 1
   -o ServerAliveInterval=30 -p 443 -R0:localhost:3101 free@a.pinggy.io \
   < /dev/null > $LOG_DIR/pinggy.log 2>&1 &)
 sleep 12
-grep -oE 'https://[a-z0-9.-]+\.pinggy[^ ]*' $LOG_DIR/pinggy.log | head -1 > "$BB_DIR/PUBLIC_URL.txt" || true
+for i in 1 2 3 4 5 6; do
+  grep -oE 'https://[a-z0-9.-]+\.run\.pinggy-free\.link' $LOG_DIR/pinggy.log | tail -1 > "$BB_DIR/PUBLIC_URL.txt" || true
+  [ -s "$BB_DIR/PUBLIC_URL.txt" ] && break
+  sleep 5
+done
 
 echo "--- browserbro:"; curl -s --max-time 10 http://localhost:3101/api/health || echo DOWN
 echo "--- public URL:"; cat "$BB_DIR/PUBLIC_URL.txt" 2>/dev/null || echo "(none yet, see /tmp/pinggy.log)"
