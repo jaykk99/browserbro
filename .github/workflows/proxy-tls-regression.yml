@@ -1,0 +1,25 @@
+name: Proxy TLS security regression
+on:
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'tests/proxy-tls.test.js'
+      - '.github/workflows/proxy-tls-regression.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server.js'
+      - 'tests/proxy-tls.test.js'
+      - '.github/workflows/proxy-tls-regression.yml'
+permissions:
+  contents: read
+jobs:
+  proxy-tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check server.js
+      - run: npm run proxy-tls-test
