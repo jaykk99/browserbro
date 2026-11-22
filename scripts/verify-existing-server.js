@@ -1,13 +1,14 @@
 'use strict';
 // E2E check of the actual running Docker BrowserBro, not a mock server.
 const BASE = process.env.BROWSERBRO_BASE_URL || 'http://127.0.0.1:3101';
+const TOKEN = process.env.BROWSERBRO_TOKEN || '';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const deadlineMs = 45000;
 let sid;
 async function api(path, opts = {}) {
   const response = await fetch(BASE + path, {
     signal: AbortSignal.timeout(deadlineMs),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
     ...opts,
   });
   const body = await response.json();
@@ -25,6 +26,10 @@ function expect(ok, detail) {
       await sleep(350);
     }
     expect(online, 'Docker BrowserBro HTTP health responds');
+    if (TOKEN) {
+      const unauthorized = await fetch(BASE + '/api/health', { signal: AbortSignal.timeout(deadlineMs) });
+      expect(unauthorized.status === 401, 'Docker rejects unauthenticated API requests');
+    }
     const created = await api('/api/sessions', { method: 'POST', body: JSON.stringify({ name: 'docker-e2e' }) });
     sid = created.body.session?.id;
     expect(!!sid && created.response.status === 201, 'Docker Chromium session starts');
@@ -38,7 +43,7 @@ function expect(ok, detail) {
       method: 'POST', body: JSON.stringify({ url: 'https://example.com' }),
     });
     expect(navigated.body.ok && new URL(navigated.body.url).hostname === 'example.com', 'Docker dashboard API navigates real external URL');
-    const pngResp = await fetch(BASE + '/api/sessions/' + sid + '/screenshot', { signal: AbortSignal.timeout(deadlineMs) });
+    const pngResp = await fetch(BASE + '/api/sessions/' + sid + '/screenshot', { signal: AbortSignal.timeout(deadlineMs), headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {} });
     const png = Buffer.from(await pngResp.arrayBuffer());
     expect(pngResp.ok && png.subarray(0, 8).toString('hex') === '89504e470d0a1a0a' && png.length > 1000, 'Docker Chromium screenshot is a real PNG (' + png.length + ' bytes)');
     console.log('DOCKER LIVE PUBLIC BROWSING: ALL CHECKS PASSED');

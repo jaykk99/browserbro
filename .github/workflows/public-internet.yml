@@ -66,13 +66,16 @@ jobs:
         run: docker build -t browserbro:ci .
 
       - name: Start actual BrowserBro container privately
-        run: docker run --rm -d --name browserbro-ci -p 127.0.0.1:3101:3101 browserbro:ci
+        run: docker run -d --name browserbro-ci -e BROWSERBRO_TOKEN=ci-only-browserbro-test-token -p 127.0.0.1:3101:3101 browserbro:ci
 
       - name: Open public websites using the Docker browser
+        env:
+          BROWSERBRO_TOKEN: ci-only-browserbro-test-token
         run: node scripts/verify-existing-server.js
 
       - name: Collect container logs and clean up
         if: always()
         run: |
+          docker ps -a --filter name=browserbro-ci || true
           docker logs browserbro-ci || true
           docker rm -f browserbro-ci || true
