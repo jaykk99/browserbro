@@ -9,6 +9,7 @@ const { execFile } = require('child_process');
 const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
 const { apiAuth } = require('./api-auth');
+const { parseWaitDuration } = require('./wait-duration');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Private by default: the browser API has no authentication yet.
@@ -242,7 +243,8 @@ app.post('/api/sessions/:id/scroll', async (req, res) => {
 
 app.post('/api/sessions/:id/wait', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  const ms = Math.min(parseInt((req.body && req.body.ms) || '1000', 10) || 1000, 60000);
+  const ms = parseWaitDuration(req.body && req.body.ms);
+  if (ms === null) return res.status(400).json({ ok: false, error: 'invalid_wait_duration' });
   await s.page.waitForTimeout(ms);
   res.json({ ok: true, waited_ms: ms, url: s.page.url() });
 });
