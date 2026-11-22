@@ -180,5 +180,18 @@ behind HTTPS and access controls. When auth is enabled, the standalone
 BrowserBro dashboard needs an authenticated API client/proxy; its browser
 JavaScript does not store or inject the bearer token.
 
+To sell access instead of sharing one token, point the gateway at the
+Monico shop hub and hand each buyer their own access code:
+
+```sh
+export BROWSERBRO_HUB_URL=https://monico-labs-hub.onrender.com
+npm start
+```
+
+A buyer opens the dashboard once with `?code=ML-XXXX-XXXX-XXXX-XXXX` and
+the code is kept in their browser and sent as `X-Access-Code` on every
+API call. Only codes whose Monico grant names product `browserbro` open
+the API; the operator token still works alongside. See `API.md`.
+
 Test token enforcement with `npm run auth-test`. A token authenticates the
 caller, but is not a browser sandbox or an internet egress firewall.
