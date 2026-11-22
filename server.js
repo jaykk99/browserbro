@@ -62,10 +62,9 @@ function publicSession(s) {
   };
 }
 // Parse a proxy URL (possibly with credentials) into Playwright's {server, username, password}.
-// The sandbox egress proxy is authenticated and MITMs TLS with a custom CA that
-// Chromium does not trust, so when a proxy is configured we also pass
-// --ignore-certificate-errors unless BROWSERBRO_IGNORE_CERTS=0.
-// In a normal deployment (no proxy env) nothing is added.
+// TLS verification stays enabled by default, including when using a proxy.
+// Operators with a trusted, isolated MITM proxy can explicitly opt in to
+// certificate bypass with BROWSERBRO_IGNORE_CERTS=1.
 function parseProxyEnv() {
   const raw = process.env.BROWSERBRO_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || '';
   if (!raw) return { proxy: undefined, ignoreCerts: false };
@@ -78,7 +77,7 @@ function parseProxyEnv() {
     proxy.bypass = 'localhost,127.0.0.1';
     if (u.username) proxy.username = decodeURIComponent(u.username);
     if (u.password) proxy.password = decodeURIComponent(u.password);
-    const ignoreCerts = process.env.BROWSERBRO_IGNORE_CERTS !== '0';
+    const ignoreCerts = process.env.BROWSERBRO_IGNORE_CERTS === '1';
     return { proxy, ignoreCerts };
   } catch (e) {
     return { proxy: { server: raw }, ignoreCerts: false };
