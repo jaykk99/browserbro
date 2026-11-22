@@ -10,7 +10,8 @@
     "terminal-test": "node --test tests/agent-terminal.test.js",
     "verify:public": "node scripts/verify-public-internet.js",
     "start:verified": "bash scripts/start-verified.sh",
-    "auth-test": "node --test tests/api-auth.test.js"
+    "auth-test": "node --test tests/api-auth.test.js",
+    "proxy-tls-test": "node --test tests/proxy-tls.test.js"
   },
   "keywords": [],
   "author": "",
