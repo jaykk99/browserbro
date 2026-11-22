@@ -1,0 +1,20 @@
+name: BrowserBro bind security
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  bind-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check bind-security.js
+      - run: node --test tests/bind-security.test.js
+      - run: docker build -t browserbro-bind-security .
+      - run: docker run --rm browserbro-bind-security node --check server.js
