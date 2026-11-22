@@ -14,6 +14,10 @@ const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Private by default: the browser API has no authentication yet.
 // Docker binds to all container interfaces explicitly; host ports stay loopback-only.
 const HOST = process.env.BROWSERBRO_HOST || '127.0.0.1';
+// Refuse an unauthenticated listener on non-loopback interfaces. This API can
+// navigate pages, read cookies, and execute browser JavaScript.
+const { assertSafeBind } = require('./bind-security');
+assertSafeBind(HOST, process.env.BROWSERBRO_TOKEN);
 // Optional: point at a system Chrome/Chromium instead of the Playwright download.
 // e.g. BROWSERBRO_CHROME_PATH=/opt/meta-chromium/chrome
 const CHROME_PATH = process.env.BROWSERBRO_CHROME_PATH || process.env.CHROME_PATH || null;
