@@ -129,6 +129,10 @@ app.post('/api/sessions', async (req, res) => {
     const name = (req.body && req.body.name) || 'browserbro session';
     const persistent = !!(req.body && req.body.persistent);
     const profile = (req.body && req.body.profile) || (persistent ? `profile_${Date.now().toString(36)}` : null);
+    // A caller-controlled profile must never escape the profiles directory.
+    if (persistent && (typeof profile !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(profile))) {
+      return res.status(400).json({ ok: false, error: 'invalid_profile', message: 'Profile must be 1-64 letters, digits, underscores or hyphens.' });
+    }
     const id = newId();
     const { args, proxy, executablePath } = launchArgs();
     let context, page;
