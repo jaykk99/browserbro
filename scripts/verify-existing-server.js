@@ -7,7 +7,7 @@ let sid;
 async function api(path, opts = {}) {
   const response = await fetch(BASE + path, {
     signal: AbortSignal.timeout(deadlineMs),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(process.env.BROWSERBRO_TOKEN ? { Authorization: `Bearer ${process.env.BROWSERBRO_TOKEN}` } : {}) },
     ...opts,
   });
   const body = await response.json();
@@ -38,7 +38,7 @@ function expect(ok, detail) {
       method: 'POST', body: JSON.stringify({ url: 'https://example.com' }),
     });
     expect(navigated.body.ok && new URL(navigated.body.url).hostname === 'example.com', 'Docker dashboard API navigates real external URL');
-    const pngResp = await fetch(BASE + '/api/sessions/' + sid + '/screenshot', { signal: AbortSignal.timeout(deadlineMs) });
+    const pngResp = await fetch(BASE + '/api/sessions/' + sid + '/screenshot', { signal: AbortSignal.timeout(deadlineMs), headers: process.env.BROWSERBRO_TOKEN ? { Authorization: `Bearer ${process.env.BROWSERBRO_TOKEN}` } : {} });
     const png = Buffer.from(await pngResp.arrayBuffer());
     expect(pngResp.ok && png.subarray(0, 8).toString('hex') === '89504e470d0a1a0a' && png.length > 1000, 'Docker Chromium screenshot is a real PNG (' + png.length + ' bytes)');
     console.log('DOCKER LIVE PUBLIC BROWSING: ALL CHECKS PASSED');
