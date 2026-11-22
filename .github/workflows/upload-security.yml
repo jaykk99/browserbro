@@ -5,6 +5,7 @@ on:
       - 'server.js'
       - 'upload-storage.js'
       - 'tests/upload-storage.test.js'
+      - 'tests/upload-http.test.js'
       - '.github/workflows/upload-security.yml'
   push:
     branches: [main]
@@ -12,6 +13,7 @@ on:
       - 'server.js'
       - 'upload-storage.js'
       - 'tests/upload-storage.test.js'
+      - 'tests/upload-http.test.js'
       - '.github/workflows/upload-security.yml'
 jobs:
   upload-regression:
@@ -24,4 +26,5 @@ jobs:
         with:
           node-version: '22'
       - run: node --check server.js
-      - run: node --test tests/upload-storage.test.js
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/upload-storage.test.js tests/upload-http.test.js
