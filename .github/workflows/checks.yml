@@ -19,3 +19,4 @@ jobs:
       - run: node --check server.js
       - run: npm run auth-test
       - run: npm run terminal-test
+      - run: node --test tests/profile-validation.test.js
