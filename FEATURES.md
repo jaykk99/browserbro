@@ -84,7 +84,9 @@ not hidden.
 - No SMS 2FA, CAPTCHA solving, or phone verification bypass. Sites that
   demand them still demand them.
 - No stealth / anti-bot fingerprinting. It is plain headless Chromium.
-- No multi-user auth yet. If you expose the port publicly, add your own
-  auth (reverse proxy basic auth is the simple answer).
+- Multi-user auth is one shared operator token (`BROWSERBRO_TOKEN`) plus
+  per-buyer Monico access codes (`BROWSERBRO_HUB_URL`, product `browserbro`).
+  A code only opens the API when its Monico grant names BrowserBro; there
+  is no per-buyer metering or session quota yet.
 - No AI agent loop built in. It is the browser layer; your agent calls
   the REST API.

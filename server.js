@@ -8,10 +8,12 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
-const { apiAuth } = require('./api-auth');
+const { anyAuth } = require('./api-auth');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
-// Private by default: the browser API has no authentication yet.
+// Private by default: loopback-only. Set BROWSERBRO_TOKEN (operator bearer
+// token) and/or BROWSERBRO_HUB_URL (Monico buyer access codes) to open the
+// API to anyone else; see api-auth.js and API.md.
 // Docker binds to all container interfaces explicitly; host ports stay loopback-only.
 const HOST = process.env.BROWSERBRO_HOST || '127.0.0.1';
 // Optional: point at a system Chrome/Chromium instead of the Playwright download.
@@ -34,9 +36,13 @@ if (!process.env.TMPDIR) process.env.TMPDIR = TMP_DIR;
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
-// All privileged API endpoints require a bearer token when configured.
-// Agent City supplies this token server-side; never expose it to browser JS.
-app.use('/api', apiAuth(process.env.BROWSERBRO_TOKEN));
+// All privileged API endpoints require auth when configured: the operator
+// bearer token (BROWSERBRO_TOKEN, what Agent City supplies server-side) or
+// a Monico buyer access code (BROWSERBRO_HUB_URL, BrowserBro Pro). With
+// neither set, the API stays open exactly as before (local-only default).
+// Never expose the operator token to browser JS; a buyer code is safe to
+// carry in the dashboard because it only ever buys BrowserBro access.
+app.use('/api', anyAuth(process.env.BROWSERBRO_TOKEN, process.env.BROWSERBRO_HUB_URL));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // One bad promise must never kill the server.

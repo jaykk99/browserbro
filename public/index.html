@@ -75,7 +75,21 @@
 </main>
 <script>
 let current = null;
+// BrowserBro Pro: a buyer code from the Monico shop (?code=ML-...) is kept
+// in this browser and sent as X-Access-Code on every API call, so a buyer
+// opening a hosted instance with their code can use the dashboard as-is.
+let buyerCode = '';
+try {
+  const q = new URLSearchParams(location.search).get('code');
+  if (q) { buyerCode = q; localStorage.setItem('bb_code', q); }
+  else buyerCode = localStorage.getItem('bb_code') || '';
+} catch (e) {}
+function withCode(path) {
+  return buyerCode ? path + (path.includes('?') ? '&' : '?') + 'code=' + encodeURIComponent(buyerCode) : path;
+}
 async function api(path, opts) {
+  opts = opts || {};
+  if (buyerCode) opts.headers = Object.assign({}, opts.headers, { 'X-Access-Code': buyerCode });
   const r = await fetch(path, opts);
   const t = await r.text();
   try { return { status: r.status, json: JSON.parse(t) }; } catch { return { status: r.status, text: t }; }
@@ -139,7 +153,7 @@ async function doFetch() {
 async function refreshLive() {
   if (!current) return;
   const img = document.getElementById('liveview');
-  img.src = `/api/sessions/${current}/live?t=${Date.now()}`;
+  img.src = withCode(`/api/sessions/${current}/live?t=${Date.now()}`);
   const r = await api(`/api/sessions/${current}/url`);
   if (r.json.url) document.getElementById('liveUrl').textContent = r.json.url;
 }
