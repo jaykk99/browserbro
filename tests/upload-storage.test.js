@@ -38,3 +38,8 @@ test('copy failure still removes multer temp', async () => fixture(async dir => 
   await assert.rejects(withStagedUpload({ path: missing, originalname: 'x' }, dir, async () => {}));
   assert.deepEqual(await fs.readdir(dir), []);
 }));
+
+test('Docker image includes upload-storage runtime dependency', async () => {
+  const dockerfile = await fs.readFile(path.join(__dirname, '..', 'Dockerfile'), 'utf8');
+  assert.match(dockerfile, /^COPY\s+[^\n]*\bupload-storage\.js\b[^\n]*\s+\.\/$/m);
+});
