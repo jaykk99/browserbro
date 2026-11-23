@@ -54,6 +54,19 @@ test('workspace is virtual and isolated by session',async()=>{
   await assert.rejects(()=>execTerminal(a,'cat ../.env'),/simple workspace filename/);
 });
 
+test('virtual workspace caps file count but allows replacement and reuse',async()=>{
+  const {session}=mockSession();
+  for(let i=0;i<128;i++) await execTerminal(session,`write file${i}.txt data`);
+  assert.equal(session.terminalFiles.size,128);
+  await assert.rejects(()=>execTerminal(session,'write overflow.txt data'),/Maximum virtual workspace files: 128/);
+  assert.equal(session.terminalFiles.has('overflow.txt'),false);
+  await execTerminal(session,'write file0.txt replaced');
+  assert.equal((await execTerminal(session,'cat file0.txt')).output,'replaced');
+  await execTerminal(session,'rm file1.txt');
+  await execTerminal(session,'write overflow.txt data');
+  assert.equal(session.terminalFiles.size,128);
+});
+
 test('API attaches terminal operations to existing sessions',async()=>{
   const {session}=mockSession();
   const store=new Map([[session.id,session]]), handlers=new Map();
