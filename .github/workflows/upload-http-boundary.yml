@@ -1,0 +1,24 @@
+name: Upload HTTP boundary regression
+on:
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'upload-security.js'
+      - 'tests/upload-http.test.js'
+      - '.github/workflows/upload-http-boundary.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upload-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --check tests/upload-http.test.js
+      - run: node --test tests/upload-http.test.js
