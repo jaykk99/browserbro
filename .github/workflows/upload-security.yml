@@ -1,0 +1,30 @@
+name: Upload security regression
+on:
+  pull_request:
+    paths:
+      - 'server.js'
+      - 'upload-storage.js'
+      - 'tests/upload-storage.test.js'
+      - 'tests/upload-http.test.js'
+      - '.github/workflows/upload-security.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server.js'
+      - 'upload-storage.js'
+      - 'tests/upload-storage.test.js'
+      - 'tests/upload-http.test.js'
+      - '.github/workflows/upload-security.yml'
+jobs:
+  upload-regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check server.js
+      - run: npm ci --ignore-scripts
+      - run: node --test tests/upload-storage.test.js tests/upload-http.test.js

@@ -9,6 +9,7 @@ const { execFile } = require('child_process');
 const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
 const { apiAuth } = require('./api-auth');
+const { withStagedUpload } = require('./upload-storage');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Private by default: the browser API has no authentication yet.
@@ -43,7 +44,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 process.on('unhandledRejection', (e) => console.error('unhandled rejection:', e && e.message));
 process.on('uncaughtException', (e) => console.error('uncaught exception:', e && e.message));
 
-const upload = multer({ dest: UPLOADS_DIR });
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
 
 // ---- session store -------------------------------------------------------
 const sessions = new Map(); // id -> {id,name,persistent,profile,context,page,createdAt,recording,recordTimer,framesDir,frameCount,replayPath}
@@ -410,16 +412,16 @@ app.get('/api/downloads/:file', (req, res) => {
   res.sendFile(full);
 });
 app.post('/api/sessions/:id/upload', upload.single('file'), async (req, res) => {
-  const s = getSession(req, res); if (!s) return;
+  const s = getSession(req, res);
   const selector = req.body && req.body.selector;
   if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
-  if (!selector) return res.status(400).json({ ok: false, error: 'missing_selector' });
+  if (!s || !selector) {
+    await fs.promises.rm(req.file.path, { force: true }).catch(() => {});
+    if (s) return res.status(400).json({ ok: false, error: 'missing_selector' });
+    return;
+  }
   try {
-    // setInputFiles takes a path; give the browser the file under its real
-    // name (multer's temp name is a random hash) so forms see the true name.
-    const realPath = path.join(UPLOADS_DIR, path.basename(req.file.originalname));
-    fs.copyFileSync(req.file.path, realPath);
-    await s.page.setInputFiles(selector, realPath);
+    await withStagedUpload(req.file, UPLOADS_DIR, staged => s.page.setInputFiles(selector, staged));
     res.json({ ok: true, uploaded: req.file.originalname, bytes: req.file.size, selector, url: s.page.url() });
   } catch (e) {
     res.status(502).json({ ok: false, error: 'upload_failed', selector, message: String(e.message || e) });
@@ -428,9 +430,17 @@ app.post('/api/sessions/:id/upload', upload.single('file'), async (req, res) => 
 
 // Local upload test page (see public/test-upload.html). The form posts here;
 // the browser really uploads the file through the real form.
-app.post('/api/test-upload', upload.single('file-upload'), (req, res) => {
+app.post('/api/test-upload', upload.single('file-upload'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
-  res.json({ ok: true, file: req.file.originalname, bytes: req.file.size });
+  try { res.json({ ok: true, file: req.file.originalname, bytes: req.file.size }); }
+  finally { await fs.promises.rm(req.file.path, { force: true }).catch(() => {}); }
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ ok: false, error: 'upload_too_large', max_bytes: MAX_UPLOAD_BYTES });
+  }
+  next(err);
 });
 
 // ---- search + fetch (free, keyless) ---------------------------------------
