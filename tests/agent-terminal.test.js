@@ -54,6 +54,19 @@ test('workspace is virtual and isolated by session',async()=>{
   await assert.rejects(()=>execTerminal(a,'cat ../.env'),/simple workspace filename/);
 });
 
+test('virtual workspace caps file count but allows replacement and reuse',async()=>{
+  const {session}=mockSession();
+  for(let i=0;i<128;i++) await execTerminal(session,`write file${i}.txt data`);
+  assert.equal(session.terminalFiles.size,128);
+  await assert.rejects(()=>execTerminal(session,'write overflow.txt data'),/Maximum virtual workspace files: 128/);
+  assert.equal(session.terminalFiles.has('overflow.txt'),false);
+  await execTerminal(session,'write file0.txt replaced');
+  assert.equal((await execTerminal(session,'cat file0.txt')).output,'replaced');
+  await execTerminal(session,'rm file1.txt');
+  await execTerminal(session,'write overflow.txt data');
+  assert.equal(session.terminalFiles.size,128);
+});
+
 test('API attaches terminal operations to existing sessions',async()=>{
   const {session}=mockSession();
   const store=new Map([[session.id,session]]), handlers=new Map();
@@ -68,4 +81,30 @@ test('API attaches terminal operations to existing sessions',async()=>{
   assert.equal(json.entries.length,1);
   handlers.get('DELETE/api/sessions/:id/terminal/history')(req,res);
   assert.equal(session.terminalHistory.length,0);
+});
+
+test('quota rejection is isolated between sessions and preserves existing content',async()=>{
+  const a=mockSession().session,b=mockSession().session;
+  await execTerminal(a,'write keep.txt original');
+  for(let i=1;i<128;i++) await execTerminal(a,`write file${i}.txt data`);
+  await assert.rejects(()=>execTerminal(a,'append new.txt rejected'),/Maximum virtual workspace files: 128/);
+  assert.equal((await execTerminal(a,'cat keep.txt')).output,'original');
+  assert.equal(a.terminalFiles.size,128);
+  await execTerminal(b,'write new.txt private');
+  assert.equal((await execTerminal(b,'cat new.txt')).output,'private');
+  assert.equal(b.terminalFiles.size,1);
+  await assert.rejects(()=>execTerminal(a,'cat new.txt'),/File not found/);
+});
+
+test('UTF-8 byte quota rejects overflow without corrupting an existing virtual file',async()=>{
+  const {session}=mockSession();
+  // 1,000 two-byte characters per command stays within the 2,048-char command cap.
+  const chunk='é'.repeat(1000);
+  for(let i=0;i<16;i++) await execTerminal(session,`append unicode.txt "${chunk}"`);
+  await execTerminal(session,`append unicode.txt "${'é'.repeat(384)}"`);
+  assert.equal(Buffer.byteLength((await execTerminal(session,'cat unicode.txt')).output,'utf8'),32768);
+  await assert.rejects(()=>execTerminal(session,'append unicode.txt é'),/Maximum virtual file size: 32 KiB/);
+  assert.equal(Buffer.byteLength((await execTerminal(session,'cat unicode.txt')).output,'utf8'),32768);
+  await execTerminal(session,'write unicode.txt replaced');
+  assert.equal((await execTerminal(session,'cat unicode.txt')).output,'replaced');
 });
