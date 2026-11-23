@@ -82,3 +82,16 @@ test('API attaches terminal operations to existing sessions',async()=>{
   handlers.get('DELETE/api/sessions/:id/terminal/history')(req,res);
   assert.equal(session.terminalHistory.length,0);
 });
+
+test('quota rejection is isolated between sessions and preserves existing content',async()=>{
+  const a=mockSession().session,b=mockSession().session;
+  await execTerminal(a,'write keep.txt original');
+  for(let i=1;i<128;i++) await execTerminal(a,`write file${i}.txt data`);
+  await assert.rejects(()=>execTerminal(a,'append new.txt rejected'),/Maximum virtual workspace files: 128/);
+  assert.equal((await execTerminal(a,'cat keep.txt')).output,'original');
+  assert.equal(a.terminalFiles.size,128);
+  await execTerminal(b,'write new.txt private');
+  assert.equal((await execTerminal(b,'cat new.txt')).output,'private');
+  assert.equal(b.terminalFiles.size,1);
+  await assert.rejects(()=>execTerminal(a,'cat new.txt'),/File not found/);
+});
