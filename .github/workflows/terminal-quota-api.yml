@@ -1,0 +1,21 @@
+name: Terminal quota API regression
+on:
+  pull_request:
+    paths:
+      - 'agent-terminal.js'
+      - 'tests/agent-terminal-quota-api.test.js'
+      - '.github/workflows/terminal-quota-api.yml'
+  workflow_dispatch:
+jobs:
+  terminal-quota-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run terminal quota API and existing terminal tests
+        run: node --test tests/agent-terminal-quota-api.test.js tests/agent-terminal.test.js
