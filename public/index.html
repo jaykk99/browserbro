@@ -60,6 +60,15 @@
       <input id="fetchUrl" placeholder="Fetch URL, e.g. https://example.com">
       <button onclick="doFetch()">Fetch</button>
     </div>
+    <div class="card">
+      <h2>BrowserBro Pro — $19 one-time</h2>
+      <p style="color:#9aa0a6;font-size:12px;margin:0 0 10px">Pro is access to a hosted instance: real Chromium sessions from anywhere, signed in with your Monico access code. Hosted access is coming soon — the shop page lists Pro at $19 one-time.</p>
+      <a href="https://monico-labs-insta.onrender.com/#/product/browserbro" target="_blank" rel="noreferrer" style="display:inline-block;background:#238636;color:#fff;border-radius:6px;padding:7px 12px;text-decoration:none;font-size:13px">Get Pro — $19 ↗</a>
+      <p style="color:#9aa0a6;font-size:12px;margin:12px 0 4px">Have an access code already?</p>
+      <input id="accessCode" placeholder="ML-XXXX-XXXX-XXXX-XXXX">
+      <button class="secondary" onclick="useAccessCode()">Use code</button>
+      <p id="codeMsg" style="color:#9aa0a6;font-size:12px;margin:6px 0 0"></p>
+    </div>
   </div>
   <div>
     <div class="card">
@@ -84,6 +93,16 @@ try {
   if (q) { buyerCode = q; localStorage.setItem('bb_code', q); }
   else buyerCode = localStorage.getItem('bb_code') || '';
 } catch (e) {}
+const _ac = document.getElementById('accessCode');
+if (_ac && buyerCode) _ac.value = buyerCode;
+function useAccessCode() {
+  const v = (document.getElementById('accessCode').value || '').trim();
+  const msg = document.getElementById('codeMsg');
+  if (!v) { msg.textContent = 'Paste your ML- code first.'; return; }
+  try { localStorage.setItem('bb_code', v); } catch (e) {}
+  msg.textContent = 'Code saved. Reloading…';
+  location.search = '?code=' + encodeURIComponent(v);
+}
 function withCode(path) {
   return buyerCode ? path + (path.includes('?') ? '&' : '?') + 'code=' + encodeURIComponent(buyerCode) : path;
 }
