@@ -102,6 +102,7 @@ async function execTerminal(session, input) {
   if (cmd==='write'||cmd==='append') {
     if (args.length<2) throw new Error(`Usage: ${cmd} filename 'text'`);
     const name=safeFile(args[0]), data=(cmd==='append'?files.get(name)||'':'')+args.slice(1).join(' ');
+    if (!files.has(name) && files.size >= 128) throw new Error('Maximum virtual workspace files: 128');
     if (Buffer.byteLength(data,'utf8')>32768) throw new Error('Maximum virtual file size: 32 KiB');
     files.set(name,data); return {output:`Saved ${Buffer.byteLength(data,'utf8')} bytes to ${name}`};
   }
