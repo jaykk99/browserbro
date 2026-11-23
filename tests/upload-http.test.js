@@ -50,6 +50,16 @@ test('HTTP multipart rejects oversize uploads and cleans temporary files', { tim
     const ok = await postFile('/api/test-upload', new Uint8Array([1, 2, 3]), 'file-upload');
     assert.equal(ok.status, 200);
     assert.equal(ok.body.bytes, 3);
+    // Concurrent requests with identical filenames must not share temporary
+    // files or leave orphaned uploads, even when handled by the same process.
+    const concurrent = await Promise.all(Array.from({ length: 8 }, (_, i) =>
+      postFile('/api/test-upload', new Uint8Array(i + 1).fill(i + 1), 'file-upload')
+    ));
+    concurrent.forEach((result, i) => {
+      assert.equal(result.status, 200);
+      assert.equal(result.body.bytes, i + 1);
+      assert.equal(result.body.file, 'upload.txt');
+    });
     assert.deepEqual((await fs.readdir(uploadDir)).filter(name => !before.has(name)), []);
   } finally {
     child.kill('SIGTERM');
