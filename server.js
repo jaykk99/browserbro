@@ -9,6 +9,7 @@ const { execFile } = require('child_process');
 const { chromium } = require('playwright');
 const { installTerminal } = require('./agent-terminal');
 const { apiAuth } = require('./api-auth');
+const { uploadPayload, cleanupUpload } = require('./upload-security');
 
 const PORT = parseInt(process.env.BROWSERBRO_PORT || '3101', 10);
 // Private by default: the browser API has no authentication yet.
@@ -43,7 +44,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 process.on('unhandledRejection', (e) => console.error('unhandled rejection:', e && e.message));
 process.on('uncaughtException', (e) => console.error('uncaught exception:', e && e.message));
 
-const upload = multer({ dest: UPLOADS_DIR });
+const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 
 // ---- session store -------------------------------------------------------
 const sessions = new Map(); // id -> {id,name,persistent,profile,context,page,createdAt,recording,recordTimer,framesDir,frameCount,replayPath}
@@ -410,27 +411,38 @@ app.get('/api/downloads/:file', (req, res) => {
   res.sendFile(full);
 });
 app.post('/api/sessions/:id/upload', upload.single('file'), async (req, res) => {
-  const s = getSession(req, res); if (!s) return;
-  const selector = req.body && req.body.selector;
-  if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
-  if (!selector) return res.status(400).json({ ok: false, error: 'missing_selector' });
   try {
-    // setInputFiles takes a path; give the browser the file under its real
-    // name (multer's temp name is a random hash) so forms see the true name.
-    const realPath = path.join(UPLOADS_DIR, path.basename(req.file.originalname));
-    fs.copyFileSync(req.file.path, realPath);
-    await s.page.setInputFiles(selector, realPath);
+    const s = getSession(req, res); if (!s) return;
+    const selector = req.body && req.body.selector;
+    if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
+    if (!selector) return res.status(400).json({ ok: false, error: 'missing_selector' });
+    // Playwright accepts an in-memory payload, preserving the original filename
+    // without copying it to a shared directory where uploads can collide.
+    await s.page.setInputFiles(selector, uploadPayload(req.file));
     res.json({ ok: true, uploaded: req.file.originalname, bytes: req.file.size, selector, url: s.page.url() });
   } catch (e) {
-    res.status(502).json({ ok: false, error: 'upload_failed', selector, message: String(e.message || e) });
+    res.status(502).json({ ok: false, error: 'upload_failed', message: String(e.message || e) });
+  } finally {
+    cleanupUpload(req.file);
   }
 });
 
-// Local upload test page (see public/test-upload.html). The form posts here;
-// the browser really uploads the file through the real form.
+// Local upload test page (see public/test-upload.html).
 app.post('/api/test-upload', upload.single('file-upload'), (req, res) => {
-  if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
-  res.json({ ok: true, file: req.file.originalname, bytes: req.file.size });
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'missing_file' });
+    res.json({ ok: true, file: req.file.originalname, bytes: req.file.size });
+  } finally {
+    cleanupUpload(req.file);
+  }
+});
+
+// Multer's size limit is a request error, not an internal server failure.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(413).json({ ok: false, error: 'upload_limit_exceeded', code: err.code });
+  }
+  next(err);
 });
 
 // ---- search + fetch (free, keyless) ---------------------------------------
