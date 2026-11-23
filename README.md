@@ -193,5 +193,7 @@ the code is kept in their browser and sent as `X-Access-Code` on every
 API call. Only codes whose Monico grant names product `browserbro` open
 the API; the operator token still works alongside. See `API.md`.
 
+BrowserBro Pro costs **$19 one-time** in the [Monico Labs shop](https://monico-labs-insta.onrender.com/#/product/browserbro) and buys access to a hosted instance, signed in with the buyer's Monico access code. The hosted instance is not up yet, so the shop lists Pro as coming soon; the dashboard already links there and already accepts buyer codes.
+
 Test token enforcement with `npm run auth-test`. A token authenticates the
 caller, but is not a browser sandbox or an internet egress firewall.
