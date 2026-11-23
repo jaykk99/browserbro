@@ -95,3 +95,16 @@ test('quota rejection is isolated between sessions and preserves existing conten
   assert.equal(b.terminalFiles.size,1);
   await assert.rejects(()=>execTerminal(a,'cat new.txt'),/File not found/);
 });
+
+test('UTF-8 byte quota rejects overflow without corrupting an existing virtual file',async()=>{
+  const {session}=mockSession();
+  // 1,000 two-byte characters per command stays within the 2,048-char command cap.
+  const chunk='é'.repeat(1000);
+  for(let i=0;i<16;i++) await execTerminal(session,`append unicode.txt "${chunk}"`);
+  await execTerminal(session,`append unicode.txt "${'é'.repeat(384)}"`);
+  assert.equal(Buffer.byteLength((await execTerminal(session,'cat unicode.txt')).output,'utf8'),32768);
+  await assert.rejects(()=>execTerminal(session,'append unicode.txt é'),/Maximum virtual file size: 32 KiB/);
+  assert.equal(Buffer.byteLength((await execTerminal(session,'cat unicode.txt')).output,'utf8'),32768);
+  await execTerminal(session,'write unicode.txt replaced');
+  assert.equal((await execTerminal(session,'cat unicode.txt')).output,'replaced');
+});
