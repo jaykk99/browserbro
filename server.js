@@ -48,6 +48,31 @@ const upload = multer({ dest: UPLOADS_DIR });
 // ---- session store -------------------------------------------------------
 const sessions = new Map(); // id -> {id,name,persistent,profile,context,page,createdAt,recording,recordTimer,framesDir,frameCount,replayPath}
 installTerminal(app, sessions); // Per-session agent terminal: real browser commands, no host shell
+
+// Playwright installs its own SIGTERM handler on the first browser launch
+// that only closes browsers and never exits the process, so a server with
+// live sessions used to ignore SIGTERM forever: start.sh restarts silently
+// failed (the new server hit EADDRINUSE) and test cleanup hung. Handle
+// shutdown ourselves instead: close every session, then exit. The launches
+// below pass handleSIGTERM/handleSIGINT/handleSIGHUP: false so Playwright
+// does not install its competing handler.
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`browserbro shutting down on ${signal}`);
+  // Never hang shutdown on a stuck browser: force-exit after 10s. The timer
+  // is unref'd, so it only fires while the HTTP listener keeps the loop alive.
+  setTimeout(() => process.exit(0), 10000).unref();
+  await Promise.allSettled([...sessions.values()].map(async (s) => {
+    try { if (s.recording) await stopRecording(s).catch(() => {}); } catch {}
+    try { await s.context.close(); } catch {}
+    try { if (s.context._browser) await s.context._browser.close().catch(() => {}); } catch {}
+  }));
+  process.exit(0);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 let counter = 0;
 function newId() {
   counter += 1;
@@ -94,6 +119,25 @@ function launchArgs() {
   if (proxy) args.push('--proxy-bypass-list=localhost,127.0.0.1');
   return { args, proxy, executablePath: CHROME_PATH || undefined };
 }
+// Read a fetch Response body with a hard byte cap; throws if exceeded, so a
+// hostile or runaway response cannot OOM the server by buffering gigabytes.
+const MAX_DOWNLOAD_BYTES = parseInt(process.env.BROWSERBRO_MAX_DOWNLOAD_BYTES || '536870912', 10); // 512 MiB
+const MAX_SEARCH_BYTES = parseInt(process.env.BROWSERBRO_MAX_SEARCH_BYTES || '10485760', 10); // 10 MiB
+async function readCapped(response, maxBytes) {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) { try { await reader.cancel(); } catch {} throw new Error(`response exceeds ${maxBytes} byte cap`); }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 function getSession(req, res) {
   const s = sessions.get(req.params.id);
   if (!s) { res.status(404).json({ ok: false, error: 'session_not_found', id: req.params.id }); return null; }
@@ -141,10 +185,11 @@ app.post('/api/sessions', async (req, res) => {
       context = await chromium.launchPersistentContext(userDataDir, {
         headless: true, args, proxy, executablePath,
         viewport: { width: 1280, height: 800 }, userAgent: REAL_UA,
+        handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
       });
       page = context.pages()[0] || await context.newPage();
     } else {
-      const browser = await chromium.launch({ headless: true, args, proxy, executablePath });
+      const browser = await chromium.launch({ headless: true, args, proxy, executablePath, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
       context = await browser.newContext({ viewport: { width: 1280, height: 800 }, userAgent: REAL_UA });
       context._browser = browser;
       page = await context.newPage();
@@ -242,7 +287,11 @@ app.post('/api/sessions/:id/scroll', async (req, res) => {
 
 app.post('/api/sessions/:id/wait', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  const ms = Math.min(parseInt((req.body && req.body.ms) || '1000', 10) || 1000, 60000);
+  // parseInt('0') is 0 and must stay 0 (the old `|| 1000` turned an explicit
+  // 0 into a 1s wait); negatives clamp to 0 instead of reporting -500ms.
+  let ms = parseInt((req.body && req.body.ms) ?? '1000', 10);
+  if (!Number.isFinite(ms)) ms = 1000;
+  ms = Math.max(0, Math.min(ms, 60000));
   await s.page.waitForTimeout(ms);
   res.json({ ok: true, waited_ms: ms, url: s.page.url() });
 });
@@ -266,27 +315,47 @@ app.get('/api/sessions/:id/url', (req, res) => {
 });
 app.get('/api/sessions/:id/title', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  res.json({ ok: true, title: await s.page.title(), url: s.page.url() });
+  try {
+    res.json({ ok: true, title: await s.page.title(), url: s.page.url() });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'read_failed', message: String(e.message || e) });
+  }
 });
 app.get('/api/sessions/:id/text', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  const text = await s.page.evaluate(() => document.body ? document.body.innerText : '');
-  res.json({ ok: true, url: s.page.url(), text: (text || '').slice(0, 20000) });
+  try {
+    const text = await s.page.evaluate(() => document.body ? document.body.innerText : '');
+    res.json({ ok: true, url: s.page.url(), text: (text || '').slice(0, 20000) });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'read_failed', message: String(e.message || e) });
+  }
 });
 app.get('/api/sessions/:id/links', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  const links = await s.page.evaluate(() =>
-    [...document.querySelectorAll('a[href]')].slice(0, 200).map(a => ({ text: (a.innerText || '').trim().slice(0, 120), href: a.href })));
-  res.json({ ok: true, url: s.page.url(), count: links.length, links });
+  try {
+    const links = await s.page.evaluate(() =>
+      [...document.querySelectorAll('a[href]')].slice(0, 200).map(a => ({ text: (a.innerText || '').trim().slice(0, 120), href: a.href })));
+    res.json({ ok: true, url: s.page.url(), count: links.length, links });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'read_failed', message: String(e.message || e) });
+  }
 });
 app.get('/api/sessions/:id/cookies', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  res.json({ ok: true, cookies: await s.context.cookies() });
+  try {
+    res.json({ ok: true, cookies: await s.context.cookies() });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'read_failed', message: String(e.message || e) });
+  }
 });
 app.get('/api/sessions/:id/localstorage', async (req, res) => {
   const s = getSession(req, res); if (!s) return;
-  const data = await s.page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; });
-  res.json({ ok: true, localStorage: data });
+  try {
+    const data = await s.page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; });
+    res.json({ ok: true, localStorage: data });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'read_failed', message: String(e.message || e) });
+  }
 });
 
 // ---- screenshots / pdf / live view ---------------------------------------
@@ -390,13 +459,17 @@ app.post('/api/sessions/:id/download', async (req, res) => {
     // path instead.
     const r = await fetch(url, { headers: { 'User-Agent': REAL_UA }, signal: AbortSignal.timeout(60000) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const body = Buffer.from(await r.arrayBuffer());
+    // Capped read: an unbounded arrayBuffer() lets one huge response OOM
+    // the server (a compromised agent session could request gigabytes).
+    const body = await readCapped(r, MAX_DOWNLOAD_BYTES);
     let name = 'download';
     try { name = new URL(url).pathname.split('/').filter(Boolean).pop() || name; } catch {}
     const cd = r.headers.get('content-disposition') || '';
     const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(cd);
     if (m) { try { name = decodeURIComponent(m[1]); } catch {} }
-    const dest = path.join(DOWNLOADS_DIR, path.basename(name));
+    name = path.basename(name);
+    if (!name || name === '.' || name === '..') name = 'download';
+    const dest = path.join(DOWNLOADS_DIR, name);
     fs.writeFileSync(dest, body);
     res.json({ ok: true, file: path.basename(dest), bytes: body.length, path: dest, via: 'server-fetch' });
   } catch (e) {
@@ -437,7 +510,7 @@ app.post('/api/test-upload', upload.single('file-upload'), (req, res) => {
 // Search runs server-side first: plain fetch of the engine's HTML page with a
 async function withTempContext(fn) {
   const { args, proxy, executablePath } = launchArgs();
-  const browser = await chromium.launch({ headless: true, args, proxy, executablePath });
+  const browser = await chromium.launch({ headless: true, args, proxy, executablePath, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
   const ctx = await browser.newContext({ userAgent: REAL_UA });
   const page = await ctx.newPage();
   try { return await fn(page); } finally { await ctx.close(); await browser.close().catch(() => {}); }
@@ -472,7 +545,7 @@ function unwrapDdgUrl(href) {
 async function fetchHtmlSearch(url, parse) {
   const r = await fetch(url, { headers: { 'User-Agent': REAL_UA }, signal: AbortSignal.timeout(30000) });
   if (!r.ok) return [];
-  const html = await r.text();
+  const html = (await readCapped(r, MAX_SEARCH_BYTES)).toString('utf8');
   return parse(html).slice(0, 10);
 }
 function parseDdgHtml(html) {

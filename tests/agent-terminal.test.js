@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {parseCommand,safeFile,isSafeBrowseUrl,execTerminal,installTerminal}=require('../agent-terminal');
+const {parseCommand,safeFile,isSafeBrowseUrl,isLoopbackOrPrivateV4,isLoopbackOrPrivateV6,execTerminal,installTerminal}=require('../agent-terminal');
 
 test('parser handles quotes and rejects shell multi-lines',()=>{
   assert.deepEqual(parseCommand('fill "input[name=q]" "two words"'),['fill','input[name=q]','two words']);
@@ -9,10 +9,23 @@ test('parser handles quotes and rejects shell multi-lines',()=>{
   assert.throws(()=>parseCommand(' '));
 });
 
-test('URL guard and workspace filenames reject unsafe values',()=>{
-  assert.equal(isSafeBrowseUrl('https://example.org/path'),'https://example.org/path');
-  for(const u of ['file:///etc/passwd','http://localhost:80','http://127.0.0.1','https://u:p@example.org','http://[::1]']) assert.throws(()=>isSafeBrowseUrl(u),u);
+test('URL guard and workspace filenames reject unsafe values',async()=>{
+  assert.equal(await isSafeBrowseUrl('https://example.org/path'),'https://example.org/path');
+  for(const u of ['file:///etc/passwd','http://localhost:80','http://127.0.0.1','https://u:p@example.org','http://[::1]']) await assert.rejects(isSafeBrowseUrl(u),u);
+  // Alternate IPv4 spellings canonicalize to dotted-quad via WHATWG URL
+  // parsing and are caught by the same check.
+  for(const u of ['http://2130706433/','http://0x7f000001/','http://0177.0.0.1/','http://127.1/','http://0/']) await assert.rejects(isSafeBrowseUrl(u),u);
+  // /etc/hosts aliases that resolve to loopback must be caught by the DNS
+  // check, not the string check (ip6-localhost/ip6-loopback -> ::1).
+  for(const u of ['http://ip6-localhost/','http://ip6-loopback/']) await assert.rejects(isSafeBrowseUrl(u),/Local and raw-IP/,u);
   for(const f of ['../secret','/etc/passwd','a/b','.','..']) assert.throws(()=>safeFile(f),f);
+});
+
+test('loopback/private address classification',()=>{
+  for(const a of ['127.0.0.1','127.53.1.2','10.0.0.5','172.16.0.1','172.31.255.255','192.168.1.1','169.254.169.254','0.0.0.0']) assert.equal(isLoopbackOrPrivateV4(a),true,a);
+  for(const a of ['8.8.8.8','1.1.1.1','93.184.216.34','172.32.0.1','192.169.0.1']) assert.equal(isLoopbackOrPrivateV4(a),false,a);
+  for(const a of ['::1','::','fe80::1','febf::1','fc00::1','fd12:3456::1','::ffff:127.0.0.1','::ffff:10.0.0.1']) assert.equal(isLoopbackOrPrivateV6(a),true,a);
+  for(const a of ['2001:4860:4860::8888','2606:4700:4700::1111','::ffff:8.8.8.8','fec0::1']) assert.equal(isLoopbackOrPrivateV6(a),false,a);
 });
 
 function mockSession(){

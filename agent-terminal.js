@@ -1,6 +1,7 @@
 'use strict';
 // BrowserBro's per-session browser terminal. These are REAL Playwright actions,
 // not a host shell. Keep untrusted agents away from host OS commands.
+const { lookup } = require('node:dns').promises;
 const HELP = `BrowserBro Agent Terminal (sandboxed commands, no OS shell)
 
 open https://example.org       Navigate in real Chromium
@@ -43,13 +44,52 @@ function safeFile(name) {
   }
   return name;
 }
-function isSafeBrowseUrl(raw) {
+function isLoopbackOrPrivateV4(addr) {
+  const p = addr.split('.').map(Number);
+  if (p.length !== 4 || p.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const n = ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
+  const inRange = (base, bits) => (n >>> (32 - bits)) === (base >>> (32 - bits));
+  return n === 0 // 0.0.0.0/32 unspecified
+    || inRange(0x7f000000, 8) // 127.0.0.0/8 loopback
+    || inRange(0x0a000000, 8) // 10.0.0.0/8 private
+    || inRange(0xac100000, 12) // 172.16.0.0/12 private
+    || inRange(0xc0a80000, 16) // 192.168.0.0/16 private
+    || inRange(0xa9fe0000, 16); // 169.254.0.0/16 link-local
+}
+function isLoopbackOrPrivateV6(addr) {
+  let a = addr.toLowerCase();
+  const mapped = a.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isLoopbackOrPrivateV4(mapped[1]); // IPv4-mapped IPv6
+  if (a === '::1' || a === '::') return true; // loopback / unspecified
+  if (a.startsWith('fe8') || a.startsWith('fe9') || a.startsWith('fea') || a.startsWith('feb')) return true; // fe80::/10 link-local
+  if (a.startsWith('fc') || a.startsWith('fd')) return true; // fc00::/7 unique-local
+  return false;
+}
+// String checks alone cannot catch hostnames that resolve to loopback via
+// /etc/hosts aliases (ip6-localhost, ip6-loopback) or a local resolver, so
+// resolve the name and check the real addresses too. A lookup failure is
+// fail-closed: the browser would not resolve it either.
+// Residual risk, stated honestly: DNS rebinding between this check and the
+// browser's own lookup can still swap in a local address; fully closing
+// that needs a pinning resolver or proxy, not a string check.
+async function isSafeBrowseUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { throw new Error('Use a valid http:// or https:// URL'); }
   if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password) throw new Error('Only public HTTP/HTTPS URLs without embedded credentials are allowed');
   const h = u.hostname.toLowerCase().replace(/\.$/, '');
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || /^\d+\.\d+\.\d+\.\d+$/.test(h) || h.startsWith('[')) {
     throw new Error('Local and raw-IP targets are unavailable in agent terminal');
+  }
+  let addrs;
+  try {
+    addrs = await lookup(h, { all: true });
+  } catch {
+    throw new Error('Could not resolve hostname');
+  }
+  for (const a of addrs) {
+    const blocked = a.family === 4 ? isLoopbackOrPrivateV4(a.address)
+      : a.family === 6 ? isLoopbackOrPrivateV6(a.address) : false;
+    if (blocked) throw new Error('Local and raw-IP targets are unavailable in agent terminal');
   }
   return u.href;
 }
@@ -66,7 +106,7 @@ async function execTerminal(session, input) {
   if (cmd === 'read') return { output: `URL: ${page.url()}\nTitle: ${await page.title()}\n\n${publicText(await page.locator('body').innerText({timeout:5000}))}` };
   if (cmd === 'open' || cmd === 'browse') {
     if (args.length !== 1) throw new Error('Usage: open https://example.org');
-    const url = isSafeBrowseUrl(args[0]);
+    const url = await isSafeBrowseUrl(args[0]);
     await page.goto(url, {waitUntil:'domcontentloaded', timeout:30000});
     return { output: `Loaded: ${page.url()}\nTitle: ${await page.title()}`, url:page.url(), browserChanged:true };
   }
@@ -136,4 +176,4 @@ function installTerminal(app, sessions) {
     }
   });
 }
-module.exports={HELP,parseCommand,safeFile,isSafeBrowseUrl,execTerminal,installTerminal};
+module.exports={HELP,parseCommand,safeFile,isSafeBrowseUrl,isLoopbackOrPrivateV4,isLoopbackOrPrivateV6,execTerminal,installTerminal};

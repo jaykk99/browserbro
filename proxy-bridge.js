@@ -74,23 +74,87 @@ const server = http.createServer((req, res) => {
   });
   let gotHead = false;
   let buf = Buffer.alloc(0);
+  // Chunked upstream bodies must be decoded before res.write(): Node
+  // re-chunks whatever we write, so forwarding raw chunk frames made
+  // clients receive the framing bytes as the body.
+  let chunked = false;
+  let chunkBuf = Buffer.alloc(0);
+  let chunkState = 'size'; // size | data | crlf | trailer | done
+  let chunkLeft = 0;
+  function feedChunked(data) {
+    chunkBuf = Buffer.concat([chunkBuf, data]);
+    for (;;) {
+      if (chunkState === 'done') return;
+      if (chunkState === 'size') {
+        const idx = chunkBuf.indexOf('\r\n');
+        if (idx === -1) return;
+        const size = parseInt(chunkBuf.slice(0, idx).toString().trim().split(';')[0].trim(), 16);
+        if (!Number.isInteger(size) || size < 0) { fail(502); return; }
+        chunkBuf = chunkBuf.slice(idx + 2);
+        if (size === 0) { chunkState = 'trailer'; continue; }
+        chunkLeft = size;
+        chunkState = 'data';
+      } else if (chunkState === 'data') {
+        if (chunkBuf.length === 0) return;
+        const take = Math.min(chunkLeft, chunkBuf.length);
+        if (take > 0) { res.write(chunkBuf.slice(0, take)); chunkBuf = chunkBuf.slice(take); chunkLeft -= take; }
+        if (chunkLeft === 0) chunkState = 'crlf';
+      } else if (chunkState === 'crlf') {
+        if (chunkBuf.length < 2) return;
+        chunkBuf = chunkBuf.slice(2);
+        chunkState = 'size';
+      } else { // trailer
+        const idx = chunkBuf.indexOf('\r\n');
+        if (idx === -1) return;
+        if (idx === 0) { chunkBuf = chunkBuf.slice(2); chunkState = 'done'; return; }
+        chunkBuf = chunkBuf.slice(idx + 2);
+      }
+    }
+  }
+  function writeBody(data) {
+    if (!data.length) return;
+    if (chunked) feedChunked(data);
+    else res.write(data);
+  }
+  // Without these the client hangs forever when the upstream is down: the
+  // connect error used to surface only as an uncaughtException while the
+  // response never ended.
+  const fail = (code) => {
+    if (res.writableEnded) return;
+    try { if (!res.headersSent) res.writeHead(code); } catch {}
+    try { res.end(); } catch {}
+    upSocket.destroy();
+  };
+  upSocket.on('error', () => fail(502));
+  upSocket.on('close', () => { if (!res.writableEnded) fail(502); });
   upSocket.on('data', (chunk) => {
-    if (gotHead) { res.write(chunk); return; }
+    if (gotHead) { writeBody(chunk); return; }
     buf = Buffer.concat([buf, chunk]);
+    if (buf.length > 65536) { fail(502); return; } // upstream never sent a header block
     const end = buf.indexOf('\r\n\r\n');
     if (end === -1) return;
     gotHead = true;
     const headText = buf.slice(0, end).toString();
     const [statusLine, ...headerLines] = headText.split('\r\n');
     const status = parseInt(statusLine.split(' ')[1] || '502', 10);
+    if (!Number.isInteger(status) || status < 100 || status > 999) { fail(502); return; }
     const headers = {};
     for (const line of headerLines) {
       const i = line.indexOf(':');
       if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
     }
+    // Hop-by-hop headers must not be forwarded: the decoded body is piped
+    // through res.write(), so Node must own the framing. Forwarding the
+    // upstream transfer-encoding made clients receive raw chunk frames
+    // as the body instead of the decoded content.
+    chunked = (headers['transfer-encoding'] || '').toLowerCase().includes('chunked');
+    delete headers['transfer-encoding'];
+    delete headers['connection'];
+    delete headers['keep-alive'];
+    delete headers['proxy-connection'];
     res.writeHead(status, headers);
     const rest = buf.slice(end + 4);
-    if (rest.length) res.write(rest);
+    if (rest.length) writeBody(rest);
   });
   upSocket.on('end', () => res.end());
   req.on('error', () => upSocket.destroy());
@@ -98,7 +162,6 @@ const server = http.createServer((req, res) => {
 
 // HTTPS: CONNECT tunnel. Authenticate with upstream, then pipe bytes.
 server.on('connect', (req, clientSocket, head) => {
-  const [host, port] = req.url.split(':');
   const upSocket = net.connect(UP_PORT, UP_HOST, () => {
     const lines = [
       `CONNECT ${req.url} HTTP/1.1`,
@@ -136,6 +199,7 @@ server.on('connect', (req, clientSocket, head) => {
   });
   upSocket.on('error', () => { clientSocket.end(); });
   clientSocket.on('error', () => { upSocket.end(); });
+  clientSocket.on('close', () => { upSocket.destroy(); });
 });
 
 server.listen(PORT, '127.0.0.1', () => {

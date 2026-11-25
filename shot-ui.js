@@ -11,6 +11,7 @@ const BASE = `http://localhost:${PORT}`;
 
 // Same proxied-sandbox handling as smoke.js: point the server at the auth
 // bridge when a proxy env var is set, starting the bridge if it is down.
+let spawnedBridge = null;
 async function bridgeUrl() {
   const upstream = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || '';
   if (!upstream) return null;
@@ -21,6 +22,7 @@ async function bridgeUrl() {
   });
   if (alive) return 'http://127.0.0.1:3129';
   const b = spawn('node', ['proxy-bridge.js'], { cwd: __dirname, env: { ...process.env, UPSTREAM_PROXY: upstream, BRIDGE_PORT: '3129' }, stdio: 'ignore' });
+  spawnedBridge = b;
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 500));
     const ok = await new Promise((resolve) => {
@@ -67,6 +69,10 @@ async function bridgeUrl() {
     console.log('ui screenshot saved:', st.size, 'bytes');
   } finally {
     server.kill('SIGTERM');
+    // The bridge this script spawned must not outlive it (the old code only
+    // killed it on the startup-failure path). A bridge that was already
+    // alive when we started is not ours; leave it alone.
+    if (spawnedBridge) spawnedBridge.kill('SIGTERM');
     setTimeout(() => process.exit(0), 500);
   }
 })().catch(e => { console.error(e); process.exit(1); });
